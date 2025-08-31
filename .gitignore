@@ -1,0 +1,9 @@
+venv
+
+# Python
+__pycache__/
+venv/
+*.pyc
+
+# Misc
+.lgd-nfy0|
