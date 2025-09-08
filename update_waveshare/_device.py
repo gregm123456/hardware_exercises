@@ -31,7 +31,7 @@ def _ensure_it8951_in_path():
                 pass
 
 
-def create_device(vcom: float = -2.06, rotate: Optional[str] = None, mirror: bool = False, virtual: bool = False, dims=(800,600)):
+def create_device(vcom: float = -3.00, rotate: Optional[str] = None, mirror: bool = False, virtual: bool = False, dims=(1448,1072)):
     """Return an initialized display object.
 
     If virtual is True, returns VirtualEPDDisplay(dims).

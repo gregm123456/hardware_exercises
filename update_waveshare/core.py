@@ -11,7 +11,12 @@ from ._device import create_device
 from IT8951.constants import DisplayModes
 
 
-def _load_and_prepare(image_path: str, target_size: Tuple[int,int]) -> Image.Image:
+def _load_and_prepare(image_path: str, target_size: Tuple[int,int], target_bpp: Optional[int] = None, dither: bool = False) -> Image.Image:
+    """Load image, resize to target_size and optionally quantize to target_bpp (2/4/8).
+
+    If dither is True and target_bpp is 4, a 16-color Floyd-Steinberg quantize will be used
+    to preserve detail when converting to 16 gray levels (GC16).
+    """
     img = Image.open(image_path).convert('L')
     # scale to fit while preserving aspect ratio, paste on white background
     img.thumbnail(target_size, Image.LANCZOS)
@@ -19,6 +24,31 @@ def _load_and_prepare(image_path: str, target_size: Tuple[int,int]) -> Image.Ima
     x = (target_size[0] - img.width)//2
     y = (target_size[1] - img.height)//2
     out.paste(img, (x, y))
+
+    if target_bpp is None:
+        return out
+
+    # quantize to requested bit depth
+    if target_bpp == 8:
+        return out
+
+    if target_bpp == 4:
+        # reduce to 16 gray levels. Use Pillow quantize with dithering if requested.
+        if dither:
+            try:
+                q = out.quantize(colors=16, method=Image.FLOYDSTEINBERG)
+            except Exception:
+                # Pillow may have been built without this method; fall back
+                q = out.quantize(colors=16)
+        else:
+            q = out.quantize(colors=16)
+        return q.convert('L')
+
+    if target_bpp == 2:
+        # reduce to 4 gray levels
+        q = out.quantize(colors=4)
+        return q.convert('L')
+
     return out
 
 
@@ -35,7 +65,7 @@ def partial_refresh(prev: Image.Image, new: Image.Image, round_to: int = 4) -> O
     return (minx, miny, maxx, maxy)
 
 
-def display_image(image_path: str, *, prev_image_path: Optional[str] = None, device=None, vcom: float = -2.06, rotate: Optional[str] = None, mirror: bool = False, virtual: bool = False, mode: str = 'auto') -> Optional[List[Tuple[int,int,int,int]]]:
+def display_image(image_path: str, *, prev_image_path: Optional[str] = None, device=None, vcom: float = -2.06, rotate: Optional[str] = None, mirror: bool = False, virtual: bool = False, mode: str = 'auto', dither: bool = False, two_pass: bool = False, no_quant: bool = False) -> Optional[List[Tuple[int,int,int,int]]]:
     """Display `image_path` on the device.
 
     If `prev_image_path` is provided and `mode` allows, compute a partial update.
@@ -49,19 +79,32 @@ def display_image(image_path: str, *, prev_image_path: Optional[str] = None, dev
 
     # prepare images
     target_size = (device.width, device.height)
-    new_img = _load_and_prepare(image_path, target_size)
+    # choose quantization for full updates to match GC16 (4bpp). If no_quant is True
+    # send an unmodified 8-bit image.
+    if (mode == 'full'):
+        if no_quant:
+            new_img = _load_and_prepare(image_path, target_size, target_bpp=8, dither=False)
+        else:
+            new_img = _load_and_prepare(image_path, target_size, target_bpp=4, dither=dither)
+    else:
+        new_img = _load_and_prepare(image_path, target_size)
 
     prev_img = None
     if prev_image_path:
         if os.path.exists(prev_image_path):
-            prev_img = _load_and_prepare(prev_image_path, target_size)
+            prev_img = _load_and_prepare(prev_image_path, target_size, target_bpp=4, dither=dither if mode=='full' else False)
 
     # if mode==full or no prev image, do full
     regions = []
     if mode == 'full' or prev_img is None:
         device.frame_buf.paste(new_img)
-        # use an 8-bit-per-pixel mode for full-image updates (matches tests)
+        # primary full pass
         device.draw_full(DisplayModes.GC16)
+
+        # optional second pass (DU) to improve contrast/clean edges
+        if two_pass:
+            device.draw_full(DisplayModes.DU)
+
         regions = [(0,0,device.width,device.height)]
     else:
         # compute bbox
