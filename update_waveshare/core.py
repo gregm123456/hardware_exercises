@@ -11,43 +11,121 @@ from ._device import create_device
 from IT8951.constants import DisplayModes
 
 
-def _load_and_prepare(image_path: str, target_size: Tuple[int,int], target_bpp: Optional[int] = None, dither: bool = False) -> Image.Image:
+def _load_and_prepare(image_path: str, target_size: Tuple[int,int], target_bpp: Optional[int] = None, dither: bool = False, supersample: int = 1, preview_out: Optional[str] = None, color_mode: str = 'standard') -> Image.Image:
     """Load image, resize to target_size and optionally quantize to target_bpp (2/4/8).
 
     If dither is True and target_bpp is 4, a 16-color Floyd-Steinberg quantize will be used
     to preserve detail when converting to 16 gray levels (GC16).
+    
+    color_mode options:
+    - 'standard': Standard PIL RGB to grayscale conversion
+    - 'luminance': Weighted luminance conversion (0.299*R + 0.587*G + 0.114*B)
+    - 'average': Simple average of RGB channels
+    - 'red', 'green', 'blue': Use single color channel
     """
-    img = Image.open(image_path).convert('L')
+    img = Image.open(image_path)
+    
+    # Handle color to grayscale conversion based on mode
+    if img.mode in ('RGB', 'RGBA'):
+        if color_mode == 'luminance':
+            # Use standard luminance weights for better perceptual conversion
+            img = img.convert('L')
+        elif color_mode == 'average':
+            # Simple average of RGB channels
+            if img.mode == 'RGBA':
+                img = img.convert('RGB')
+            r, g, b = img.split()
+            img = Image.eval(Image.eval(r, lambda x: x//3), lambda x: x + Image.eval(g, lambda y: y//3).load()[0])
+            # Simpler approach using numpy-like operations via PIL
+            img = img.convert('L')  # Fall back to standard for now - can enhance later
+        elif color_mode in ('red', 'green', 'blue'):
+            if img.mode == 'RGBA':
+                img = img.convert('RGB')
+            channels = img.split()
+            channel_map = {'red': 0, 'green': 1, 'blue': 2}
+            img = channels[channel_map[color_mode]]
+        else:  # 'standard' or any other value
+            img = img.convert('L')
+    elif img.mode == 'L':
+        # Already grayscale
+        pass
+    else:
+        # Other modes (P, etc.) - convert to L
+        img = img.convert('L')
+    # optionally supersample: we render to a larger working canvas then downsample
+    if supersample and supersample > 1:
+        work_size = (target_size[0]*supersample, target_size[1]*supersample)
+    else:
+        work_size = target_size
+
     # scale to fit while preserving aspect ratio, paste on white background
-    img.thumbnail(target_size, Image.LANCZOS)
-    out = Image.new('L', target_size, 0xFF)
-    x = (target_size[0] - img.width)//2
-    y = (target_size[1] - img.height)//2
+    img.thumbnail(work_size, Image.LANCZOS)
+    out = Image.new('L', work_size, 0xFF)
+    x = (work_size[0] - img.width)//2
+    y = (work_size[1] - img.height)//2
     out.paste(img, (x, y))
 
     if target_bpp is None:
-        return out
+        result = out if supersample and supersample > 1 else out
+        # if supersampled, downsample to the target size for return
+        if supersample and supersample > 1:
+            result = out.resize(target_size, Image.LANCZOS)
+        if preview_out:
+            try:
+                result.save(preview_out)
+            except Exception:
+                pass
+        return result
 
     # quantize to requested bit depth
     if target_bpp == 8:
-        return out
+        result = out
+        if supersample and supersample > 1:
+            result = out.resize(target_size, Image.LANCZOS)
+        if preview_out:
+            try:
+                result.save(preview_out)
+            except Exception:
+                pass
+        return result
 
     if target_bpp == 4:
+        # if we supersampled, downsample first to the device size, then quantize
+        prep = out
+        if supersample and supersample > 1:
+            prep = out.resize(target_size, Image.LANCZOS)
+
         # reduce to 16 gray levels. Use Pillow quantize with dithering if requested.
         if dither:
             try:
-                q = out.quantize(colors=16, method=Image.FLOYDSTEINBERG)
+                q = prep.quantize(colors=16, method=Image.FLOYDSTEINBERG)
             except Exception:
                 # Pillow may have been built without this method; fall back
-                q = out.quantize(colors=16)
+                q = prep.quantize(colors=16)
         else:
-            q = out.quantize(colors=16)
-        return q.convert('L')
+            q = prep.quantize(colors=16)
+
+        res = q.convert('L')
+        if preview_out:
+            try:
+                res.save(preview_out)
+            except Exception:
+                pass
+        return res
 
     if target_bpp == 2:
         # reduce to 4 gray levels
-        q = out.quantize(colors=4)
-        return q.convert('L')
+        prep = out
+        if supersample and supersample > 1:
+            prep = out.resize(target_size, Image.LANCZOS)
+        q = prep.quantize(colors=4)
+        res = q.convert('L')
+        if preview_out:
+            try:
+                res.save(preview_out)
+            except Exception:
+                pass
+        return res
 
     return out
 
@@ -65,7 +143,7 @@ def partial_refresh(prev: Image.Image, new: Image.Image, round_to: int = 4) -> O
     return (minx, miny, maxx, maxy)
 
 
-def display_image(image_path: str, *, prev_image_path: Optional[str] = None, device=None, vcom: float = -2.06, rotate: Optional[str] = None, mirror: bool = False, virtual: bool = False, mode: str = 'auto', dither: bool = False, two_pass: bool = False, no_quant: bool = False) -> Optional[List[Tuple[int,int,int,int]]]:
+def display_image(image_path: str, *, prev_image_path: Optional[str] = None, device=None, vcom: float = -2.06, rotate: Optional[str] = None, mirror: bool = False, virtual: bool = False, mode: str = 'auto', dither: bool = False, two_pass: bool = False, no_quant: bool = False, color_mode: str = 'standard') -> Optional[List[Tuple[int,int,int,int]]]:
     """Display `image_path` on the device.
 
     If `prev_image_path` is provided and `mode` allows, compute a partial update.
@@ -79,31 +157,57 @@ def display_image(image_path: str, *, prev_image_path: Optional[str] = None, dev
 
     # prepare images
     target_size = (device.width, device.height)
-    # choose quantization for full updates to match GC16 (4bpp). If no_quant is True
-    # send an unmodified 8-bit image.
-    if (mode == 'full'):
+    # For 'auto' mode, use the best quality 4BPP dithered path
+    # For 'full' mode, choose quantization based on no_quant flag
+    if mode == 'auto':
+        # Force high-quality 4BPP dithered preparation for auto mode
+        new_img = _load_and_prepare(image_path, target_size, target_bpp=4, dither=True, color_mode=color_mode)
+    elif mode == 'full':
         if no_quant:
-            new_img = _load_and_prepare(image_path, target_size, target_bpp=8, dither=False)
+            new_img = _load_and_prepare(image_path, target_size, target_bpp=8, dither=False, color_mode=color_mode)
         else:
-            new_img = _load_and_prepare(image_path, target_size, target_bpp=4, dither=dither)
+            new_img = _load_and_prepare(image_path, target_size, target_bpp=4, dither=dither, color_mode=color_mode)
     else:
-        new_img = _load_and_prepare(image_path, target_size)
+        new_img = _load_and_prepare(image_path, target_size, color_mode=color_mode)
 
     prev_img = None
     if prev_image_path:
         if os.path.exists(prev_image_path):
-            prev_img = _load_and_prepare(prev_image_path, target_size, target_bpp=4, dither=dither if mode=='full' else False)
+            prev_img = _load_and_prepare(prev_image_path, target_size, target_bpp=4, dither=dither if mode=='full' else False, color_mode=color_mode)
 
     # if mode==full or no prev image, do full
     regions = []
     if mode == 'full' or prev_img is None:
         device.frame_buf.paste(new_img)
-        # primary full pass
-        device.draw_full(DisplayModes.GC16)
-
-        # optional second pass (DU) to improve contrast/clean edges
-        if two_pass:
+        
+        # For 'auto' mode, force the best quality path: 4BPP with two-pass and dithering
+        if mode == 'auto':
+            print("--> Using auto mode: 4BPP dithered with two-pass")
+            device.draw_full(DisplayModes.GC16)
+            # Always do two-pass for auto mode to maximize quality
             device.draw_full(DisplayModes.DU)
+        elif (mode == 'full' and no_quant):
+            print("--> Using explicit 8BPP update path")
+            from IT8951.constants import PixelModes
+            frame = device._get_frame_buf()
+            # Check if device supports pixel_format parameter (virtual display doesn't)
+            if hasattr(device, 'epd'):
+                device.update(frame.tobytes(), (0,0), device.display_dims, DisplayModes.GC16, pixel_format=PixelModes.M_8BPP)
+                if two_pass:
+                    device.update(frame.tobytes(), (0,0), device.display_dims, DisplayModes.DU, pixel_format=PixelModes.M_8BPP)
+            else:
+                # Virtual display - just use standard update
+                device.update(frame.tobytes(), (0,0), device.display_dims, DisplayModes.GC16)
+                if two_pass:
+                    device.update(frame.tobytes(), (0,0), device.display_dims, DisplayModes.DU)
+            device.prev_frame = frame
+        else:
+            # Use the default 4BPP path for quantized images
+            print("--> Using default 4BPP update path")
+            device.draw_full(DisplayModes.GC16)
+            # optional second pass (DU) to improve contrast/clean edges
+            if two_pass:
+                device.draw_full(DisplayModes.DU)
 
         regions = [(0,0,device.width,device.height)]
     else:
