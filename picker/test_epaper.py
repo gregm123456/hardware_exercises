@@ -8,8 +8,8 @@ import logging
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
-# Add picker to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add parent directory to path to import picker modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from picker.drivers.epaper_standalone import create_display
 

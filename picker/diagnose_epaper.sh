@@ -55,7 +55,15 @@ fi
 
 # Check Python packages
 echo "5. Checking Python packages:"
-source .venv/bin/activate 2>/dev/null || echo "   Warning: No .venv found"
+if [ -f "../.venv/bin/activate" ]; then
+    source ../.venv/bin/activate 2>/dev/null
+    echo "   ✓ Found .venv in parent directory"
+elif [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate 2>/dev/null
+    echo "   ✓ Found .venv in current directory"
+else
+    echo "   Warning: No .venv found"
+fi
 
 if python -c "import spidev" 2>/dev/null; then
     echo "   ✓ spidev package available"
@@ -119,6 +127,6 @@ echo
 
 echo "=== Next Steps ==="
 echo "1. If SPI issues found, fix them and reboot"
-echo "2. Run the hardware test: 'python test_epaper.py --test-spi'"
+echo "2. Run the hardware test: 'cd picker && python test_epaper.py --test-spi'"
 echo "3. Check wiring matches the pin assignments above"
-echo "4. Try running picker without --force-simulation"
+echo "4. Try running picker without --force-simulation: 'cd .. && python picker/run_picker.py --simulate --verbose'"
