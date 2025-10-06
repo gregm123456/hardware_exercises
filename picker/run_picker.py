@@ -34,6 +34,7 @@ def main(argv=None):
     p.add_argument("--adc-spi-port", type=int, default=0, help="SPI port for ADC/MCP3008 (default 0)")
     p.add_argument("--adc-spi-device", type=int, default=1, help="SPI device (CE) for ADC/MCP3008 - CE1 (default 1)")
     p.add_argument("--display-spi-device", type=int, default=0, help="SPI device (CE) for e-paper display - CE0 (default 0)")
+    p.add_argument("--rotate", choices=['CW','CCW','flip','none'], default='none', help="Rotate display output: CW, CCW, flip, or none")
     p.add_argument("--force-simulation", action="store_true", help="Force display simulation mode")
     p.add_argument("--verbose", action="store_true", help="Enable debug logging")
     args = p.parse_args(argv)
@@ -68,7 +69,8 @@ def main(argv=None):
             texts, 
             display_size=(args.display_w, args.display_h),
             spi_device=args.display_spi_device,
-            force_simulation=args.force_simulation
+            force_simulation=args.force_simulation,
+            rotate=(None if args.rotate == 'none' else args.rotate)
         )
         logger.info("Picker core initialized")
     except Exception as e:
@@ -79,12 +81,12 @@ def main(argv=None):
     try:
         logger.info("Displaying startup message")
         img = compose_message("Starting...", full_screen=(args.display_w, args.display_h))
-        blit(img, "starting")
+        blit(img, "starting", rotate=(None if args.rotate == 'none' else args.rotate))
         time.sleep(2.0)
         # clear by drawing an empty overlay/background
         logger.info("Clearing startup message")
         clear_img = compose_overlay("", [""] * 12, 0, full_screen=(args.display_w, args.display_h))
-        blit(clear_img, "clear_start")
+        blit(clear_img, "clear_start", rotate=(None if args.rotate == 'none' else args.rotate))
         logger.info("Ready - entering main loop")
     except Exception as e:
         # If display or PIL fails, continue silently to the main loop

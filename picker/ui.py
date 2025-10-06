@@ -12,8 +12,23 @@ from PIL import Image, ImageDraw, ImageFont
 DISPLAY_W = 1024
 DISPLAY_H = 600
 
-FONT_PATH = "/System/Library/Fonts/Supplemental/Arial.ttf"
-FONT_SIZE = 28
+FONT_PATHS = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+]
+
+# Base font size is calculated relative to the display height if not overridden
+DEFAULT_BASE_FONT_RATIO = 0.035  # ~3.5% of shorter display dimension
+
+
+def _choose_font_path():
+    for p in FONT_PATHS:
+        try:
+            if Path(p).exists():
+                return p
+        except Exception:
+            continue
+    return None
 
 
 def compose_overlay(title: str, values: List[str], selected_index: int, full_screen: Tuple[int, int] = (DISPLAY_W, DISPLAY_H)) -> Image.Image:
@@ -21,29 +36,47 @@ def compose_overlay(title: str, values: List[str], selected_index: int, full_scr
     img = Image.new("L", (w, h), color=255)  # white background (L mode)
     draw = ImageDraw.Draw(img)
 
+    # Compute font sizes relative to display
+    short_dim = min(w, h)
+    base_font_size = max(12, int(short_dim * DEFAULT_BASE_FONT_RATIO))
+    title_font_size = int(base_font_size * 1.2)
+    item_font_size = base_font_size
+
+    font_path = _choose_font_path()
     try:
-        font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+        if font_path:
+            title_font = ImageFont.truetype(font_path, title_font_size)
+            item_font = ImageFont.truetype(font_path, item_font_size)
+        else:
+            raise Exception("no font path")
     except Exception:
-        font = ImageFont.load_default()
+        title_font = ImageFont.load_default()
+        item_font = ImageFont.load_default()
 
     # Title
-    margin = 16
+    margin = int(base_font_size * 0.6)
     y = margin
-    draw.text((margin, y), title, font=font, fill=0)
-    y += FONT_SIZE + 8
+    draw.text((margin, y), title, font=title_font, fill=0)
+    # Advance by title height
+    try:
+        title_h = title_font.getsize(title)[1]
+    except Exception:
+        title_h = title_font_size
+    y += title_h + int(base_font_size * 0.4)
 
     # Layout 12 items vertically spaced
-    item_h = (h - y - margin) // 12
+    item_h = max(18, (h - y - margin) // 12)
     for i in range(12):
         text = values[i] if i < len(values) else ""
         box_y0 = y + i * item_h
         box_y1 = box_y0 + item_h
+        text_y = box_y0 + max(0, (item_h - item_font_size) // 2)
         # selected -> draw black rectangle and white text
         if i == selected_index:
             draw.rectangle((0, box_y0, w, box_y1), fill=0)
-            draw.text((margin, box_y0 + (item_h - FONT_SIZE) // 2), text, font=font, fill=255)
+            draw.text((margin, text_y), text, font=item_font, fill=255)
         else:
-            draw.text((margin, box_y0 + (item_h - FONT_SIZE) // 2), text, font=font, fill=0)
+            draw.text((margin, text_y), text, font=item_font, fill=0)
 
     return img
 
@@ -57,8 +90,15 @@ def compose_message(message: str, full_screen: Tuple[int, int] = (DISPLAY_W, DIS
     img = Image.new("L", (w, h), color=255)
     draw = ImageDraw.Draw(img)
 
+    # Large message font scaled to display
+    short_dim = min(w, h)
+    msg_font_size = max(24, int(short_dim * 0.12))
+    font_path = _choose_font_path()
     try:
-        font = ImageFont.truetype(FONT_PATH, FONT_SIZE * 4)
+        if font_path:
+            font = ImageFont.truetype(font_path, msg_font_size)
+        else:
+            raise Exception("no font path")
     except Exception:
         font = ImageFont.load_default()
 
@@ -75,8 +115,8 @@ def compose_message(message: str, full_screen: Tuple[int, int] = (DISPLAY_W, DIS
             tw, th = font.getsize(message)
         except Exception:
             # fallback approximate
-            tw = len(message) * (FONT_SIZE * 2)
-            th = FONT_SIZE * 4
+            tw = len(message) * (msg_font_size * 2)
+            th = msg_font_size
     x = (w - tw) // 2
     y = (h - th) // 2
     draw.text((x, y), message, font=font, fill=0)

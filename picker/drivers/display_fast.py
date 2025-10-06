@@ -19,7 +19,7 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 _display = None
 
 
-def init(spi_device=0, force_simulation=False):
+def init(spi_device=0, force_simulation=False, rotate: str = None):
     """Initialize display adapter.
     
     Args:
@@ -34,8 +34,8 @@ def init(spi_device=0, force_simulation=False):
         # Hardware setup: epaper display is on CE0 (SPI device 0) by default
         # The enhanced driver will use IT8951 package if available, otherwise basic SPI
         _display = create_display(
-            spi_device=spi_device, 
-            vcom=-2.06, 
+            spi_device=spi_device,
+            vcom=-2.06,
             force_simulation=force_simulation,
             prefer_enhanced=True  # Try to use IT8951 package for best results
         )
@@ -47,7 +47,7 @@ def init(spi_device=0, force_simulation=False):
         return False
 
 
-def blit(full_bitmap: Image.Image, file_label: str = "frame") -> Path:
+def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None) -> Path:
     """Write a full-screen bitmap to the real display if available; otherwise save to /tmp.
 
     Hardware setup: epaper display is on CE0. Uses standalone e-paper driver for 
@@ -55,15 +55,28 @@ def blit(full_bitmap: Image.Image, file_label: str = "frame") -> Path:
     """
     global _display
     
+    # Apply rotation if requested (rotate is one of 'CW','CCW','flip' or None)
+    img_to_send = full_bitmap
+    if rotate:
+        try:
+            if rotate == 'CW':
+                img_to_send = full_bitmap.rotate(-90, expand=True)
+            elif rotate == 'CCW':
+                img_to_send = full_bitmap.rotate(90, expand=True)
+            elif rotate == 'flip':
+                img_to_send = full_bitmap.transpose(Image.FLIP_LEFT_RIGHT)
+        except Exception:
+            logger.exception('Rotation failed, proceeding without rotation')
+
     # Always save a copy for debugging
     tmp = OUT_DIR / f"{file_label}.png"
-    full_bitmap.save(tmp)
+    img_to_send.save(tmp)
     
     # Try to update the actual display
     if _display:
         try:
             # Use 'auto' mode for best quality (GC16 + DU two-pass)
-            _display.display_image(full_bitmap, mode='auto')
+            _display.display_image(img_to_send, mode='auto')
             logger.info(f"Display updated successfully with {file_label}")
         except Exception as e:
             logger.error(f"Display update failed: {e}")

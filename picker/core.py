@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class PickerCore:
-    def __init__(self, hw: HW, texts: Dict = None, display_size: Tuple[int, int] = (1024, 600), spi_device=0, force_simulation=False):
+    def __init__(self, hw: HW, texts: Dict = None, display_size: Tuple[int, int] = (1024, 600), spi_device=0, force_simulation=False, rotate: str = None):
         self.hw = hw
         self.texts = texts or load_texts()
         self.display_size = display_size
@@ -29,8 +29,9 @@ class PickerCore:
         self.running = False
         
         # Initialize display with proper SPI device
-        logger.info(f"Initializing display on SPI device {spi_device}")
-        display_success = display_init(spi_device=spi_device, force_simulation=force_simulation)
+        logger.info(f"Initializing display on SPI device {spi_device} (rotate={rotate})")
+        self.rotate = rotate
+        display_success = display_init(spi_device=spi_device, force_simulation=force_simulation, rotate=rotate)
         if not display_success:
             logger.warning("Display initialization failed - continuing in simulation mode")
 
@@ -44,7 +45,7 @@ class PickerCore:
         logger.info(f"Knob change: CH{ch} -> position {pos} ('{title}')")
         
         img = compose_overlay(title, values, pos, full_screen=self.display_size)
-        blit(img, f"overlay_ch{ch}_pos{pos}")
+        blit(img, f"overlay_ch{ch}_pos{pos}", rotate=self.rotate)
         self.overlay_visible = True
         self.last_activity = time.time()
         self.current_knob = (ch, pos)
@@ -52,14 +53,14 @@ class PickerCore:
     def handle_go(self):
         logger.info("GO button pressed!")
         img = compose_message("GO!", full_screen=self.display_size)
-        blit(img, "go")
+        blit(img, "go", rotate=self.rotate)
         self.overlay_visible = False
         self.last_activity = time.time()
 
     def handle_reset(self):
         logger.info("RESET button pressed!")
         img = compose_message("RESETTING", full_screen=self.display_size)
-        blit(img, "reset")
+        blit(img, "reset", rotate=self.rotate)
         self.overlay_visible = False
         self.last_activity = time.time()
 
@@ -92,7 +93,7 @@ class PickerCore:
             # clear overlay by drawing a blank frame
             logger.debug("Clearing overlay due to timeout")
             img = compose_overlay("", [""] * 12, 0, full_screen=self.display_size)
-            blit(img, "clear_overlay")
+            blit(img, "clear_overlay", rotate=self.rotate)
             self.overlay_visible = False
 
     def run(self, run_seconds: float = None):
