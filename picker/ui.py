@@ -63,7 +63,20 @@ def compose_message(message: str, full_screen: Tuple[int, int] = (DISPLAY_W, DIS
         font = ImageFont.load_default()
 
     # center text
-    tw, th = draw.textsize(message, font=font)
+    # Compute text width/height in a way compatible with multiple Pillow versions
+    if hasattr(draw, 'textbbox'):
+        bbox = draw.textbbox((0, 0), message, font=font)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+    elif hasattr(draw, 'textsize'):
+        tw, th = draw.textsize(message, font=font)
+    else:
+        try:
+            tw, th = font.getsize(message)
+        except Exception:
+            # fallback approximate
+            tw = len(message) * (FONT_SIZE * 2)
+            th = FONT_SIZE * 4
     x = (w - tw) // 2
     y = (h - th) // 2
     draw.text((x, y), message, font=font, fill=0)
