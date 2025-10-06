@@ -13,19 +13,23 @@ logger = logging.getLogger(__name__)
 # Try to import IT8951 if available (from submodule or installed package)
 IT8951_AVAILABLE = False
 try:
-    # First try the submodule path
+    # First try the submodule path - go up from picker/drivers/ to find IT8951/
     import sys
-    parent_dir = Path(__file__).parent.parent.parent
-    it8951_src = parent_dir / 'IT8951' / 'src'
+    # From picker/drivers/epaper_enhanced.py -> ../../IT8951/src
+    current_file = Path(__file__).resolve()
+    project_root = current_file.parent.parent.parent  # Go up 3 levels: drivers -> picker -> project
+    it8951_src = project_root / 'IT8951' / 'src'
+    
     if it8951_src.exists():
         sys.path.insert(0, str(it8951_src))
+        logger.debug(f"Added IT8951 path: {it8951_src}")
     
     from IT8951.display import AutoEPDDisplay, VirtualEPDDisplay
     from IT8951.constants import DisplayModes
     IT8951_AVAILABLE = True
     logger.info("IT8951 package available - using enhanced driver")
-except ImportError:
-    logger.info("IT8951 package not available - using basic SPI driver")
+except ImportError as e:
+    logger.info(f"IT8951 package not available: {e} - using basic SPI driver")
 
 # Fallback to our basic SPI implementation
 try:
