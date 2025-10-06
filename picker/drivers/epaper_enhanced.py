@@ -20,15 +20,21 @@ try:
     project_root = current_file.parent.parent.parent  # Go up 3 levels: drivers -> picker -> project
     it8951_src = project_root / 'IT8951' / 'src'
     
+    print(f"DEBUG: Looking for IT8951 at: {it8951_src}")
+    print(f"DEBUG: IT8951 exists: {it8951_src.exists()}")
+    
     if it8951_src.exists():
         sys.path.insert(0, str(it8951_src))
+        print(f"DEBUG: Added IT8951 path: {it8951_src}")
         logger.debug(f"Added IT8951 path: {it8951_src}")
     
     from IT8951.display import AutoEPDDisplay, VirtualEPDDisplay
     from IT8951.constants import DisplayModes
     IT8951_AVAILABLE = True
+    print("DEBUG: IT8951 import successful!")
     logger.info("IT8951 package available - using enhanced driver")
 except ImportError as e:
+    print(f"DEBUG: IT8951 import failed: {e}")
     logger.info(f"IT8951 package not available: {e} - using basic SPI driver")
 
 # Fallback to our basic SPI implementation
