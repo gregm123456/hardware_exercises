@@ -17,6 +17,8 @@ def main(argv=None):
     p.add_argument("--config", help="Path to texts JSON config (defaults to picker/sample_texts.json)")
     p.add_argument("--display-w", type=int, default=1024)
     p.add_argument("--display-h", type=int, default=600)
+    p.add_argument("--adc-spi-port", type=int, default=0, help="SPI port for ADC/MCP3008 (default 0)")
+    p.add_argument("--adc-spi-device", type=int, default=1, help="SPI device (CE) for ADC/MCP3008 - CE1 (default 1)")
     args = p.parse_args(argv)
 
     texts = load_texts(args.config) if args.config else load_texts()
@@ -27,7 +29,7 @@ def main(argv=None):
         adc = None  # real ADC reader to be implemented / wired here
 
     calib_map = {ch: Calibration() for ch in range(8)}
-    hw = HW(adc_reader=adc, calib_map=calib_map)
+    hw = HW(adc_reader=adc, calib_map=calib_map, adc_spi_port=args.adc_spi_port, adc_spi_device=args.adc_spi_device)
 
     core = PickerCore(hw, texts, display_size=(args.display_w, args.display_h))
 

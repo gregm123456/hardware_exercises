@@ -15,13 +15,13 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 def init():
     """Initialize display adapter. Try to use the project's IT8951/Waveshare helper
-    when available (update_waveshare.create_device). Otherwise stay in virtual mode.
+    when available (update_waveshare.create_device). Hardware setup: epaper is on CE0.
     """
     try:
         # Import local helper that locates the IT8951 code inside the repo
         from update_waveshare._device import create_device
-        # Create a virtual device if caller wants to override; we'll store it for later
-        # For now we don't keep the device object globally; display functions will create as needed.
+        # Hardware setup: epaper display is on CE0 (SPI device 0)
+        # The create_device function uses IT8951 driver defaults which should be CE0
         return True
     except Exception:
         return True
@@ -30,8 +30,9 @@ def init():
 def blit(full_bitmap: Image.Image, file_label: str = "frame") -> Path:
     """Write a full-screen bitmap to the real display if available; otherwise save to /tmp.
 
-    If the project's update_waveshare helpers exist, use them to display the image with
-    the best available path. Otherwise save a PNG to /tmp for inspection.
+    Hardware setup: epaper display is on CE0. If the project's update_waveshare helpers
+    exist, use them to display the image with the best available path. Otherwise save a
+    PNG to /tmp for inspection.
     """
     # Try to use the update_waveshare helper which wraps IT8951 and fast paths
     try:

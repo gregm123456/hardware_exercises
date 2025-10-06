@@ -131,7 +131,7 @@ class HW:
     KNOB_CHANNELS = [0, 1, 2, 4, 5, 6]
     BUTTON_CHANNELS = {3: "GO", 7: "RESET"}
 
-    def __init__(self, adc_reader=None, calib_map: Dict[int, Calibration] = None, poll_hz: int = 80):
+    def __init__(self, adc_reader=None, calib_map: Dict[int, Calibration] = None, poll_hz: int = 80, adc_spi_port: int = 0, adc_spi_device: int = 1):
         # If an adc_reader was provided use it. Otherwise attempt to create a real
         # Adafruit_MCP3008 reader (SPI). If that fails, fall back to the simulator.
         if adc_reader is not None:
@@ -141,9 +141,10 @@ class HW:
                 import Adafruit_MCP3008
                 import Adafruit_GPIO.SPI as SPI
 
-                SPI_PORT = 0
-                SPI_DEVICE = 0
-                spi = SPI.SpiDev(SPI_PORT, SPI_DEVICE)
+                # Hardware setup: ADC (MCP3008) is on CE1, epaper is on CE0
+                ADC_SPI_PORT = adc_spi_port
+                ADC_SPI_DEVICE = adc_spi_device  # CE1 for MCP3008/ADC
+                spi = SPI.SpiDev(ADC_SPI_PORT, ADC_SPI_DEVICE)
                 # set a conservative clock speed used elsewhere in this repo
                 try:
                     spi.set_clock_hz(1350000)
