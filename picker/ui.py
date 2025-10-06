@@ -18,7 +18,8 @@ FONT_PATHS = [
 ]
 
 # Base font size is calculated relative to the display height if not overridden
-DEFAULT_BASE_FONT_RATIO = 0.035  # ~3.5% of shorter display dimension
+# Increased so text is much larger on the physical display
+DEFAULT_BASE_FONT_RATIO = 0.06  # ~6% of shorter display dimension
 
 
 def _choose_font_path():
@@ -66,14 +67,15 @@ def compose_overlay(title: str, values: List[str], selected_index: int, full_scr
 
     # Layout 12 items vertically spaced
     item_h = max(18, (h - y - margin) // 12)
+    side_pad = int(margin * 0.6)
     for i in range(12):
         text = values[i] if i < len(values) else ""
         box_y0 = y + i * item_h
         box_y1 = box_y0 + item_h
         text_y = box_y0 + max(0, (item_h - item_font_size) // 2)
-        # selected -> draw black rectangle and white text
+        # selected -> draw black rectangle inset by side_pad and white text
         if i == selected_index:
-            draw.rectangle((0, box_y0, w, box_y1), fill=0)
+            draw.rectangle((side_pad, box_y0, w - side_pad, box_y1), fill=0)
             draw.text((margin, text_y), text, font=item_font, fill=255)
         else:
             draw.text((margin, text_y), text, font=item_font, fill=0)

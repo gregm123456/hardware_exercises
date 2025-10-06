@@ -22,6 +22,12 @@ class PickerCore:
         self.hw = hw
         self.texts = texts or load_texts()
         self.display_size = display_size
+        # If rotation will be applied, compose UI using the rotated dimensions
+        if rotate in ('CW', 'CCW'):
+            # swap width/height so composition matches final orientation
+            self.effective_display_size = (display_size[1], display_size[0])
+        else:
+            self.effective_display_size = display_size
         self.overlay_visible = False
         self.overlay_timeout = 2.0  # seconds
         self.last_activity = 0.0
@@ -43,8 +49,7 @@ class PickerCore:
         values = knob.get("values", [""] * 12) if knob else [""] * 12
         
         logger.info(f"Knob change: CH{ch} -> position {pos} ('{title}')")
-        
-        img = compose_overlay(title, values, pos, full_screen=self.display_size)
+        img = compose_overlay(title, values, pos, full_screen=self.effective_display_size)
         blit(img, f"overlay_ch{ch}_pos{pos}", rotate=self.rotate)
         self.overlay_visible = True
         self.last_activity = time.time()
@@ -52,14 +57,14 @@ class PickerCore:
 
     def handle_go(self):
         logger.info("GO button pressed!")
-        img = compose_message("GO!", full_screen=self.display_size)
+        img = compose_message("GO!", full_screen=self.effective_display_size)
         blit(img, "go", rotate=self.rotate)
         self.overlay_visible = False
         self.last_activity = time.time()
 
     def handle_reset(self):
         logger.info("RESET button pressed!")
-        img = compose_message("RESETTING", full_screen=self.display_size)
+        img = compose_message("RESETTING", full_screen=self.effective_display_size)
         blit(img, "reset", rotate=self.rotate)
         self.overlay_visible = False
         self.last_activity = time.time()
@@ -92,7 +97,7 @@ class PickerCore:
         if self.overlay_visible and (time.time() - self.last_activity) > self.overlay_timeout:
             # clear overlay by drawing a blank frame
             logger.debug("Clearing overlay due to timeout")
-            img = compose_overlay("", [""] * 12, 0, full_screen=self.display_size)
+            img = compose_overlay("", [""] * 12, 0, full_screen=self.effective_display_size)
             blit(img, "clear_overlay", rotate=self.rotate)
             self.overlay_visible = False
 
