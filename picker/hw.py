@@ -165,7 +165,21 @@ class HW:
         self.button_threshold = {ch: 0.2 for ch in self.BUTTON_CHANNELS}
 
     def read_raw(self, ch: int) -> int:
-        return int(self.adc.read(ch))
+        """Read raw ADC counts from the underlying ADC reader.
+
+        Support different reader APIs: Adafruit_MCP3008 provides `read_adc(ch)`,
+        while our simulator implements `read(ch)`. Try common method names.
+        """
+        # prefer read_adc (Adafruit_MCP3008)
+        if hasattr(self.adc, 'read_adc'):
+            return int(self.adc.read_adc(ch))
+        # some implementations may provide read() which our simulator uses
+        if hasattr(self.adc, 'read'):
+            return int(self.adc.read(ch))
+        # fallback: try generic get method
+        if hasattr(self.adc, 'get'):
+            return int(self.adc.get(ch))
+        raise AttributeError("ADC reader has no compatible read method (expected read_adc or read)")
 
     def read_positions(self) -> Dict[int, Tuple[int, bool]]:
         """Read and map all knobs. Returns dict {ch: (pos, changed)}"""
