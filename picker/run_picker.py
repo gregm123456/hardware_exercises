@@ -9,6 +9,9 @@ import sys
 from picker.hw import HW, SimulatedMCP3008, Calibration
 from picker.config import load_texts, DEFAULT_DISPLAY
 from picker.core import PickerCore
+from picker.ui import compose_message, compose_overlay
+from picker.drivers.display_fast import blit
+import time
 
 
 def main(argv=None):
@@ -32,6 +35,18 @@ def main(argv=None):
     hw = HW(adc_reader=adc, calib_map=calib_map, adc_spi_port=args.adc_spi_port, adc_spi_device=args.adc_spi_device)
 
     core = PickerCore(hw, texts, display_size=(args.display_w, args.display_h))
+
+    # Show a startup message for 2 seconds, then clear the screen
+    try:
+        img = compose_message("Starting...", full_screen=(args.display_w, args.display_h))
+        blit(img, "starting")
+        time.sleep(2.0)
+        # clear by drawing an empty overlay/background
+        clear_img = compose_overlay("", [""] * 12, 0, full_screen=(args.display_w, args.display_h))
+        blit(clear_img, "clear_start")
+    except Exception:
+        # If display or PIL fails, continue silently to the main loop
+        pass
 
     def handle_sigint(sig, frame):
         print('Stopping...')
