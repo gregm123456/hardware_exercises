@@ -34,7 +34,7 @@ def main(argv=None):
     p.add_argument("--adc-spi-port", type=int, default=0, help="SPI port for ADC/MCP3008 (default 0)")
     p.add_argument("--adc-spi-device", type=int, default=1, help="SPI device (CE) for ADC/MCP3008 - CE1 (default 1)")
     p.add_argument("--display-spi-device", type=int, default=0, help="SPI device (CE) for e-paper display - CE0 (default 0)")
-    p.add_argument("--rotate", choices=['CW','CCW','flip','none'], default='none', help="Rotate display output: CW, CCW, flip, or none")
+    p.add_argument("--rotate", choices=['CW','CCW','flip','none'], default='CW', help="Rotate display output: CW, CCW, flip, or none")
     p.add_argument("--force-simulation", action="store_true", help="Force display simulation mode")
     p.add_argument("--verbose", action="store_true", help="Enable debug logging")
     args = p.parse_args(argv)

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class PickerCore:
-    def __init__(self, hw: HW, texts: Dict = None, display_size: Tuple[int, int] = (1024, 600), spi_device=0, force_simulation=False, rotate: str = None):
+    def __init__(self, hw: HW, texts: Dict = None, display_size: Tuple[int, int] = (1024, 600), spi_device=0, force_simulation=False, rotate: str = 'CW'):
         self.hw = hw
         self.texts = texts or load_texts()
         self.display_size = display_size
