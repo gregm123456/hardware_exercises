@@ -48,6 +48,28 @@ def compose_overlay(title: str, values: List[str], selected_index: int, full_scr
     return img
 
 
+def compose_message(message: str, full_screen: Tuple[int, int] = (DISPLAY_W, DISPLAY_H)) -> Image.Image:
+    """Compose a large centered message (used for GO / RESET screens).
+
+    Returns an L-mode PIL Image sized to full_screen.
+    """
+    w, h = full_screen
+    img = Image.new("L", (w, h), color=255)
+    draw = ImageDraw.Draw(img)
+
+    try:
+        font = ImageFont.truetype(FONT_PATH, FONT_SIZE * 4)
+    except Exception:
+        font = ImageFont.load_default()
+
+    # center text
+    tw, th = draw.textsize(message, font=font)
+    x = (w - tw) // 2
+    y = (h - th) // 2
+    draw.text((x, y), message, font=font, fill=0)
+    return img
+
+
 if __name__ == "__main__":
     # quick visual smoke test
     title = "Sample Category"
