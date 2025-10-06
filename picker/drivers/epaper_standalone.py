@@ -218,7 +218,15 @@ class IT8951Display:
         prepared.paste(img, (x, y))
         
         # Quantize to 4-bit for better display quality
-        quantized = prepared.quantize(colors=16, method=Image.FLOYDSTEINBERG)
+        # Try Floyd-Steinberg dithering, fall back to default if not available
+        try:
+            quantized = prepared.quantize(colors=16, method=Image.FLOYDSTEINBERG)
+            logger.debug("Using Floyd-Steinberg dithering")
+        except (ValueError, AttributeError):
+            # Fall back to default quantization if dithering not available
+            quantized = prepared.quantize(colors=16)
+            logger.debug("Using default quantization (no dithering)")
+        
         return quantized.convert('L')
     
     def _update_full(self, mode=DisplayModes.GC16):

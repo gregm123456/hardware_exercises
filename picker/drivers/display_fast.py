@@ -1,14 +1,14 @@
 """Standalone display adapter for picker application.
 
 This module provides a self-contained e-paper display interface without external dependencies.
-Uses the standalone epaper driver for IT8951-based displays.
+Uses the enhanced epaper driver which can optionally leverage IT8951 when available.
 """
 from pathlib import Path
 from typing import Tuple
 import logging
 
 from PIL import Image
-from .epaper_standalone import create_display
+from .epaper_enhanced import create_display
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +32,12 @@ def init(spi_device=0, force_simulation=False):
     global _display
     try:
         # Hardware setup: epaper display is on CE0 (SPI device 0) by default
+        # The enhanced driver will use IT8951 package if available, otherwise basic SPI
         _display = create_display(
             spi_device=spi_device, 
             vcom=-2.06, 
-            force_simulation=force_simulation
+            force_simulation=force_simulation,
+            prefer_enhanced=True  # Try to use IT8951 package for best results
         )
         logger.info(f"Display initialized (SPI device {spi_device})")
         return True

@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageFont
 # Add parent directory to path to import picker modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from picker.drivers.epaper_standalone import create_display
+from picker.drivers.epaper_enhanced import create_display
 
 # Set up logging
 logging.basicConfig(
