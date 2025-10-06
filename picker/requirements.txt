@@ -1,0 +1,3 @@
+# Minimal dependencies for picker development
+Pillow>=9.0.0
+python-dateutil

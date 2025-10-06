@@ -1,0 +1,118 @@
+{
+  "meta": {
+    "version": "1.0",
+    "description": "Sample picker text configuration: six knobs (CH0,CH1,CH2,CH4,CH5,CH6). Each values array MUST be length 12; empty strings allowed.",
+    "reserved_image_area": {
+      "width": 512,
+      "height": 512
+    }
+  },
+
+  "CH0": {
+    "title": "Color",
+    "values": [
+      "Red",
+      "Orange",
+      "Yellow",
+      "Green",
+      "Blue",
+      "Indigo",
+      "Violet",
+      "Black",
+      "White",
+      "Gray",
+      "Brown",
+      ""
+    ]
+  },
+
+  "CH1": {
+    "title": "Size",
+    "values": [
+      "XS",
+      "S",
+      "M",
+      "L",
+      "XL",
+      "2XL",
+      "3XL",
+      "4XL",
+      "5XL",
+      "6XL",
+      "7XL",
+      ""
+    ]
+  },
+
+  "CH2": {
+    "title": "Material",
+    "values": [
+      "Cotton",
+      "Polyester",
+      "Wool",
+      "Silk",
+      "Nylon",
+      "Leather",
+      "Denim",
+      "Linen",
+      "Rayon",
+      "Canvas",
+      "Velvet",
+      ""
+    ]
+  },
+
+  "CH4": {
+    "title": "Pattern",
+    "values": [
+      "Solid",
+      "Striped",
+      "Checked",
+      "Plaid",
+      "Paisley",
+      "Floral",
+      "Geometric",
+      "Abstract",
+      "Animal",
+      "Houndstooth",
+      "Camouflage",
+      ""
+    ]
+  },
+
+  "CH5": {
+    "title": "Finish",
+    "values": [
+      "Matte",
+      "Gloss",
+      "Satin",
+      "Polished",
+      "Antique",
+      "Brushed",
+      "Hammered",
+      "Pearlescent",
+      "Metallic",
+      "Translucent",
+      "Frosted",
+      ""
+    ]
+  },
+
+  "CH6": {
+    "title": "Accessory",
+    "values": [
+      "Pocket",
+      "Zipper",
+      "Buttons",
+      "Laces",
+      "Belt",
+      "Hood",
+      "Cuffs",
+      "Collar",
+      "Patch",
+      "Emblem",
+      "Tag",
+      ""
+    ]
+  }
+}
