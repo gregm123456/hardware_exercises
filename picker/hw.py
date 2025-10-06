@@ -132,7 +132,28 @@ class HW:
     BUTTON_CHANNELS = {3: "GO", 7: "RESET"}
 
     def __init__(self, adc_reader=None, calib_map: Dict[int, Calibration] = None, poll_hz: int = 80):
-        self.adc = adc_reader or SimulatedMCP3008()
+        # If an adc_reader was provided use it. Otherwise attempt to create a real
+        # Adafruit_MCP3008 reader (SPI). If that fails, fall back to the simulator.
+        if adc_reader is not None:
+            self.adc = adc_reader
+        else:
+            try:
+                import Adafruit_MCP3008
+                import Adafruit_GPIO.SPI as SPI
+
+                SPI_PORT = 0
+                SPI_DEVICE = 0
+                spi = SPI.SpiDev(SPI_PORT, SPI_DEVICE)
+                # set a conservative clock speed used elsewhere in this repo
+                try:
+                    spi.set_clock_hz(1350000)
+                except Exception:
+                    pass
+                mcp = Adafruit_MCP3008.MCP3008(spi=spi)
+                self.adc = mcp
+            except Exception:
+                # Hardware libs not available or failed; use simulator
+                self.adc = SimulatedMCP3008()
         self.poll_hz = poll_hz
         self.interval = 1.0 / max(1, poll_hz)
         self.calib_map = calib_map or {ch: Calibration() for ch in range(8)}
