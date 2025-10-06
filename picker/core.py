@@ -6,16 +6,19 @@ simulation mode when the HW instance is backed by `SimulatedMCP3008`.
 """
 import time
 import threading
+import logging
 from typing import Dict, Tuple
 
 from picker.hw import HW
 from picker.ui import compose_overlay, compose_message
-from picker.drivers.display_fast import init as display_init, blit, partial_update, full_update
+from picker.drivers.display_fast import init as display_init, blit, partial_update, full_update, clear_display
 from picker.config import load_texts, DEFAULT_DISPLAY
+
+logger = logging.getLogger(__name__)
 
 
 class PickerCore:
-    def __init__(self, hw: HW, texts: Dict = None, display_size: Tuple[int, int] = (1024, 600)):
+    def __init__(self, hw: HW, texts: Dict = None, display_size: Tuple[int, int] = (1024, 600), spi_device=0, force_simulation=False):
         self.hw = hw
         self.texts = texts or load_texts()
         self.display_size = display_size
@@ -24,7 +27,12 @@ class PickerCore:
         self.last_activity = 0.0
         self.current_knob = None
         self.running = False
-        display_init()
+        
+        # Initialize display with proper SPI device
+        logger.info(f"Initializing display on SPI device {spi_device}")
+        display_success = display_init(spi_device=spi_device, force_simulation=force_simulation)
+        if not display_success:
+            logger.warning("Display initialization failed - continuing in simulation mode")
 
     def handle_knob_change(self, ch: int, pos: int):
         # Compose overlay for knob channel ch
@@ -32,6 +40,9 @@ class PickerCore:
         knob = self.texts.get(key)
         title = knob.get("title", key) if knob else key
         values = knob.get("values", [""] * 12) if knob else [""] * 12
+        
+        logger.info(f"Knob change: CH{ch} -> position {pos} ('{title}')")
+        
         img = compose_overlay(title, values, pos, full_screen=self.display_size)
         blit(img, f"overlay_ch{ch}_pos{pos}")
         self.overlay_visible = True
@@ -39,12 +50,14 @@ class PickerCore:
         self.current_knob = (ch, pos)
 
     def handle_go(self):
+        logger.info("GO button pressed!")
         img = compose_message("GO!", full_screen=self.display_size)
         blit(img, "go")
         self.overlay_visible = False
         self.last_activity = time.time()
 
     def handle_reset(self):
+        logger.info("RESET button pressed!")
         img = compose_message("RESETTING", full_screen=self.display_size)
         blit(img, "reset")
         self.overlay_visible = False
@@ -53,6 +66,15 @@ class PickerCore:
     def loop_once(self):
         positions = self.hw.read_positions()
         buttons = self.hw.read_buttons()
+
+        # Log hardware state for debugging
+        active_positions = {ch: pos for ch, (pos, changed) in positions.items() if changed}
+        active_buttons = {name: state for name, state in buttons.items() if state}
+        
+        if active_positions:
+            logger.debug(f"Hardware positions: {active_positions}")
+        if active_buttons:
+            logger.debug(f"Hardware buttons: {active_buttons}")
 
         # knobs: positions is dict {ch: (pos, changed)}
         for ch, (pos, changed) in positions.items():
@@ -68,6 +90,7 @@ class PickerCore:
         # overlay timeout
         if self.overlay_visible and (time.time() - self.last_activity) > self.overlay_timeout:
             # clear overlay by drawing a blank frame
+            logger.debug("Clearing overlay due to timeout")
             img = compose_overlay("", [""] * 12, 0, full_screen=self.display_size)
             blit(img, "clear_overlay")
             self.overlay_visible = False
