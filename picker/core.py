@@ -37,6 +37,12 @@ class PickerCore:
         # current knob being shown as an overlay: tuple (ch, pos) or None
         self.current_knob = None
 
+        # Lightning-fast update tracking
+        self.pending_updates = {}  # {ch: (pos, timestamp)} - only keep latest position per knob
+        self.last_display_update = 0.0
+        self.min_update_interval = 0.05  # 50ms minimum between display updates for responsiveness
+        self.display_busy = False  # track if display update is in progress
+        
         # track last-main view to avoid redundant blits
         self.last_main_positions = {}
         self.running = False
@@ -67,22 +73,49 @@ class PickerCore:
             logger.debug(f"Ignoring startup knob change: CH{ch} -> position {pos}")
             return
 
-        # Compose overlay for knob channel ch
-        key = f"CH{ch}"
-        knob = self.texts.get(key)
-        title = knob.get("title", key) if knob else key
-        values = knob.get("values", [""] * 12) if knob else [""] * 12
-
-        logger.info(f"Knob change: CH{ch} -> position {pos} ('{title}')")
-        img = compose_overlay(title, values, pos, full_screen=self.effective_display_size)
-        blit(img, f"overlay_ch{ch}_pos{pos}", rotate=self.rotate)
-
-        # Mark overlay visible for this knob and record its last-activity time
-        self.overlay_visible = True
         now = time.time()
+        
+        # Always update the pending state immediately - this captures the "landing" position
+        self.pending_updates[ch] = (pos, now)
         self.last_activity_per_knob[ch] = now
-        # store the exact knob/position currently displayed
-        self.current_knob = (ch, pos)
+        
+        # If display is busy or we're within minimum update interval, don't update yet
+        # The pending update will be processed in the next loop_once call
+        if self.display_busy or (now - self.last_display_update) < self.min_update_interval:
+            logger.debug(f"Queuing knob change: CH{ch} -> position {pos} (display busy or throttled)")
+            return
+            
+        # Process the update immediately for maximum responsiveness
+        self._process_knob_update(ch, pos, now)
+
+    def _process_knob_update(self, ch: int, pos: int, timestamp: float):
+        """Process a knob update by rendering and blitting to display."""
+        try:
+            self.display_busy = True
+            
+            # Compose overlay for knob channel ch
+            key = f"CH{ch}"
+            knob = self.texts.get(key)
+            title = knob.get("title", key) if knob else key
+            values = knob.get("values", [""] * 12) if knob else [""] * 12
+            
+            logger.info(f"Knob change: CH{ch} -> position {pos} ('{title}')")
+            img = compose_overlay(title, values, pos, full_screen=self.effective_display_size)
+            blit(img, f"overlay_ch{ch}_pos{pos}", rotate=self.rotate)
+            
+            # Mark overlay visible for this knob
+            self.overlay_visible = True
+            self.current_knob = (ch, pos)
+            self.last_display_update = timestamp
+            
+            # Clear this knob's pending update since we just processed it
+            if ch in self.pending_updates:
+                del self.pending_updates[ch]
+                
+        except Exception as e:
+            logger.error(f"Failed to process knob update: {e}")
+        finally:
+            self.display_busy = False
 
     def handle_go(self):
         logger.info("GO button pressed!")
@@ -124,11 +157,27 @@ class PickerCore:
         if active_buttons:
             logger.debug(f"Hardware buttons: {active_buttons}")
 
-        # knobs: positions is dict {ch: (pos, changed)}
+        # Process knob changes - queue them for lightning-fast response
         for ch, (pos, changed) in positions.items():
             if changed:
-                # Immediately update overlay for every knob change
                 self.handle_knob_change(ch, pos)
+
+        # Process any pending updates if display is not busy and enough time has passed
+        now = time.time()
+        if not self.display_busy and (now - self.last_display_update) >= self.min_update_interval:
+            # Find the most recent pending update (prioritize latest change)
+            if self.pending_updates:
+                latest_ch = None
+                latest_time = 0
+                for ch, (pos, timestamp) in self.pending_updates.items():
+                    if timestamp > latest_time:
+                        latest_time = timestamp
+                        latest_ch = ch
+                
+                if latest_ch is not None:
+                    pos, timestamp = self.pending_updates[latest_ch]
+                    logger.debug(f"Processing pending update: CH{latest_ch} -> position {pos}")
+                    self._process_knob_update(latest_ch, pos, now)
 
         # buttons
         if buttons.get("GO"):

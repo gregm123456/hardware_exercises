@@ -165,7 +165,7 @@ class HW:
     KNOB_CHANNELS = [0, 1, 2, 4, 5, 6]
     BUTTON_CHANNELS = {3: "GO", 7: "RESET"}
 
-    def __init__(self, adc_reader=None, calib_map: Dict[int, Calibration] = None, poll_hz: int = 80, adc_spi_port: int = 0, adc_spi_device: int = 1, calib_file: Optional[str] = None):
+    def __init__(self, adc_reader=None, calib_map: Dict[int, Calibration] = None, poll_hz: int = 120, adc_spi_port: int = 0, adc_spi_device: int = 1, calib_file: Optional[str] = None):
         # If an adc_reader was provided use it. Otherwise attempt to create a real
         # Adafruit_MCP3008 reader (SPI). If that fails, fall back to the simulator.
         if adc_reader is not None:

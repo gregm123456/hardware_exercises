@@ -72,14 +72,21 @@ def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None
     tmp = OUT_DIR / f"{file_label}.png"
     img_to_send.save(tmp)
     
-    # Try to update the actual display
+    # Try to update the actual display with fastest possible mode
     if _display:
         try:
-            # Use 'auto' mode for best quality (GC16 + DU two-pass)
-            _display.display_image(img_to_send, mode='auto')
-            logger.info(f"Display updated successfully with {file_label}")
+            # Use 'FAST' mode for lightning-fast updates - prioritize speed over quality
+            # This uses the DU (direct update) mode which is fastest for e-paper
+            _display.display_image(img_to_send, mode='FAST')
+            logger.debug(f"Fast display update completed: {file_label}")
         except Exception as e:
-            logger.error(f"Display update failed: {e}")
+            logger.error(f"Fast display update failed: {e}")
+            # Fallback to auto mode if FAST fails
+            try:
+                _display.display_image(img_to_send, mode='auto')
+                logger.info(f"Fallback display update completed: {file_label}")
+            except Exception as e2:
+                logger.error(f"Fallback display update also failed: {e2}")
     else:
         logger.warning("No display available - saved to file only")
     
