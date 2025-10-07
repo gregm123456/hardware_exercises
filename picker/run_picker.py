@@ -78,6 +78,15 @@ def main(argv=None):
         logger.error(f"Failed to initialize picker core: {e}")
         return 1
 
+    # Clear display first to remove any residual images
+    try:
+        logger.info("Clearing display at startup")
+        from picker.drivers.display_fast import clear_display
+        clear_display()
+        time.sleep(0.5)  # Give display time to clear
+    except Exception as e:
+        logger.warning(f"Initial display clear failed: {e}")
+
     # Show a startup message for 2 seconds, then clear the screen
     try:
         logger.info("Displaying startup message")
