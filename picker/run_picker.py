@@ -37,6 +37,7 @@ def main(argv=None):
     p.add_argument("--rotate", choices=['CW','CCW','flip','none'], default='CW', help="Rotate display output: CW, CCW, flip, or none")
     p.add_argument("--force-simulation", action="store_true", help="Force display simulation mode")
     p.add_argument("--verbose", action="store_true", help="Enable debug logging")
+    p.add_argument("--calibration", type=str, help="Path to knob calibration JSON file")
     args = p.parse_args(argv)
     
     if args.verbose:
@@ -57,7 +58,7 @@ def main(argv=None):
     calib_map = {ch: Calibration() for ch in range(8)}
     
     try:
-        hw = HW(adc_reader=adc, calib_map=calib_map, adc_spi_port=args.adc_spi_port, adc_spi_device=args.adc_spi_device)
+        hw = HW(adc_reader=adc, calib_map=calib_map, adc_spi_port=args.adc_spi_port, adc_spi_device=args.adc_spi_device, calib_file=args.calibration)
         logger.info("Hardware interface initialized")
     except Exception as e:
         logger.error(f"Failed to initialize hardware: {e}")

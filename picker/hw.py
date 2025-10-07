@@ -40,6 +40,9 @@ class Calibration:
     inverted: bool = False
     positions: int = 12
     hysteresis: float = 0.015  # fraction of full-scale
+    # Optional: per-position voltage thresholds (from calibration file)
+    voltage_positions: Optional[List[float]] = None
+    vref: float = 3.3
 
 
 @dataclass
@@ -75,6 +78,14 @@ class KnobMapper:
         return v
 
     def raw_to_pos(self, raw: int) -> int:
+        # Convert ADC to voltage
+        voltage = (raw / DEFAULT_ADC_MAX) * self.calib.vref
+        
+        # Use calibrated positions if available
+        if self.calib.voltage_positions:
+            return self._voltage_to_calibrated_pos(voltage)
+        
+        # Fallback to linear mapping
         v = self.normalize(raw)
         pos_f = v * self.calib.positions
         pos = int(pos_f)  # floor
@@ -83,6 +94,29 @@ class KnobMapper:
         if pos < 0:
             pos = 0
         return pos
+    
+    def _voltage_to_calibrated_pos(self, voltage: float) -> int:
+        """Map voltage to position using calibrated thresholds."""
+        positions = self.calib.voltage_positions
+        if not positions or len(positions) < 2:
+            return 0
+            
+        # Find the position by comparing against midpoints between calibrated values
+        n = len(positions)
+        
+        # Handle edge cases
+        if voltage <= positions[0]:
+            return 0
+        if voltage >= positions[-1]:
+            return min(n - 1, self.calib.positions - 1)
+            
+        # Find the appropriate bin using midpoint thresholds
+        for i in range(n - 1):
+            midpoint = (positions[i] + positions[i + 1]) / 2.0
+            if voltage < midpoint:
+                return min(i, self.calib.positions - 1)
+                
+        return min(n - 1, self.calib.positions - 1)
 
     def map(self, raw: int) -> Tuple[int, bool]:
         """Map a raw ADC value to a debounced position.
@@ -131,7 +165,7 @@ class HW:
     KNOB_CHANNELS = [0, 1, 2, 4, 5, 6]
     BUTTON_CHANNELS = {3: "GO", 7: "RESET"}
 
-    def __init__(self, adc_reader=None, calib_map: Dict[int, Calibration] = None, poll_hz: int = 80, adc_spi_port: int = 0, adc_spi_device: int = 1):
+    def __init__(self, adc_reader=None, calib_map: Dict[int, Calibration] = None, poll_hz: int = 80, adc_spi_port: int = 0, adc_spi_device: int = 1, calib_file: Optional[str] = None):
         # If an adc_reader was provided use it. Otherwise attempt to create a real
         # Adafruit_MCP3008 reader (SPI). If that fails, fall back to the simulator.
         if adc_reader is not None:
@@ -158,6 +192,10 @@ class HW:
         self.poll_hz = poll_hz
         self.interval = 1.0 / max(1, poll_hz)
         self.calib_map = calib_map or {ch: Calibration() for ch in range(8)}
+        
+        # Load calibration from file if provided
+        if calib_file:
+            self._load_calibration_file(calib_file)
         # Determine stable_required from poll_hz: higher poll rates need more samples
         # to consider a reading stable. Keep a sensible minimum of 2 samples.
         try:
@@ -204,6 +242,32 @@ class HW:
             # allow the normal mapping logic to initialize over the first few
             # poll cycles.
             pass
+    
+    def _load_calibration_file(self, calib_file: str):
+        """Load calibration data from JSON file."""
+        try:
+            import json
+            with open(calib_file, 'r') as f:
+                cal_data = json.load(f)
+            
+            channels = cal_data.get('channels', {})
+            vref = cal_data.get('vref', 3.3)
+            
+            for ch_str, positions in channels.items():
+                try:
+                    ch = int(ch_str)
+                    if ch in self.KNOB_CHANNELS and isinstance(positions, list) and len(positions) >= 2:
+                        # Update calibration for this channel
+                        if ch not in self.calib_map:
+                            self.calib_map[ch] = Calibration()
+                        self.calib_map[ch].voltage_positions = [float(v) for v in positions]
+                        self.calib_map[ch].vref = vref
+                        self.calib_map[ch].positions = min(len(positions), 12)  # Cap at 12 positions
+                except (ValueError, TypeError):
+                    continue
+                    
+        except Exception as e:
+            print(f"Warning: Could not load calibration file {calib_file}: {e}")
 
         # Button thresholds: read ADC and compare > threshold to detect press.
         # Default threshold is 0.2 of full-scale (can be tuned per channel via calib_map)
