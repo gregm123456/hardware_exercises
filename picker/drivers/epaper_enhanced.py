@@ -165,18 +165,23 @@ class EnhancedIT8951Display:
         
         # Update display
         self.display.frame_buf.paste(prepared)
-        
-        if mode == 'auto' or mode == 'full':
+
+        # Special full-quality mode: use GC16 then DU for best fidelity
+        if mode == 'full_quality':
+            if IT8951_AVAILABLE:
+                # Full grayscale render (GC16) then a DU pass for clean edges
+                self.display.draw_full(DisplayModes.GC16)
+                self.display.draw_full(DisplayModes.DU)
+            else:
+                # Fallback - use full redraw
+                self.display.draw_full(DisplayModes.DU)
+        elif mode == 'auto' or mode == 'full':
             if IT8951_AVAILABLE:
                 # Use only DU mode for fast, flicker-free updates
-                # Eliminates the bright/dark inversion during menu changes
                 self.display.draw_full(DisplayModes.DU)
-        elif mode == 'partial':
+        elif mode == 'partial' or mode == 'FAST':
             if IT8951_AVAILABLE:
-                self.display.draw_partial(DisplayModes.DU)
-        elif mode == 'FAST':
-            if IT8951_AVAILABLE:
-                # Lightning-fast DU-only mode
+                # Partial updates optimized for speed (DU)
                 self.display.draw_partial(DisplayModes.DU)
         
         logger.info(f"Display updated with mode {mode}")

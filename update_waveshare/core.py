@@ -162,6 +162,9 @@ def display_image(image_path: str, *, prev_image_path: Optional[str] = None, dev
     if mode == 'auto':
         # Force high-quality 4BPP dithered preparation for auto mode
         new_img = _load_and_prepare(image_path, target_size, target_bpp=4, dither=True, color_mode=color_mode)
+    elif mode == 'full_quality':
+        # For guaranteed best fidelity, prepare full-resolution without quantization
+        new_img = _load_and_prepare(image_path, target_size, target_bpp=8, dither=False, color_mode=color_mode)
     elif mode == 'full':
         if no_quant:
             new_img = _load_and_prepare(image_path, target_size, target_bpp=8, dither=False, color_mode=color_mode)

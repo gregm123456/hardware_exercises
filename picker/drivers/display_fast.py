@@ -47,7 +47,7 @@ def init(spi_device=0, force_simulation=False, rotate: str = None):
         return False
 
 
-def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None) -> Path:
+def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None, mode: str | None = None) -> Path:
     """Write a full-screen bitmap to the real display if available; otherwise save to /tmp.
 
     Hardware setup: epaper display is on CE0. Uses standalone e-paper driver for 
@@ -72,21 +72,22 @@ def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None
     tmp = OUT_DIR / f"{file_label}.png"
     img_to_send.save(tmp)
     
-    # Try to update the actual display with fastest possible mode
+    # Try to update the actual display with requested mode (default to FAST)
     if _display:
         try:
-            # Use 'FAST' mode for lightning-fast updates - prioritize speed over quality
-            # This uses the DU (direct update) mode which is fastest for e-paper
-            _display.display_image(img_to_send, mode='FAST')
-            logger.debug(f"Fast display update completed: {file_label}")
+            chosen = mode or 'FAST'
+            _display.display_image(img_to_send, mode=chosen)
+            logger.debug(f"Display update completed ({chosen}): {file_label}")
         except Exception as e:
-            logger.error(f"Fast display update failed: {e}")
-            # Fallback to auto mode if FAST fails
-            try:
-                _display.display_image(img_to_send, mode='auto')
-                logger.info(f"Fallback display update completed: {file_label}")
-            except Exception as e2:
-                logger.error(f"Fallback display update also failed: {e2}")
+            logger.error(f"Display update failed ({mode}): {e}")
+            # Fallback sequence: try 'auto' then 'FAST'
+            for fb in ('auto', 'FAST'):
+                try:
+                    _display.display_image(img_to_send, mode=fb)
+                    logger.info(f"Fallback display update completed ({fb}): {file_label}")
+                    break
+                except Exception as e2:
+                    logger.error(f"Fallback display update ({fb}) also failed: {e2}")
     else:
         logger.warning("No display available - saved to file only")
     

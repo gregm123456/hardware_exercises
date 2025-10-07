@@ -139,7 +139,8 @@ class PickerCore:
             positions = self.hw.read_positions()
             main_positions = {ch: pos for ch, (pos, changed) in positions.items()}
             img = compose_main_screen(self.texts, main_positions, full_screen=self.effective_display_size)
-            blit(img, "main", rotate=self.rotate)
+            # For the main screen (contains guaranteed 512x512 image), request full-quality rendering
+            blit(img, "main", rotate=self.rotate, mode='full_quality')
             self.last_main_positions = main_positions
         except Exception:
             logger.exception("Failed to compose/show main screen")

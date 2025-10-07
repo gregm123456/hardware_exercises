@@ -191,13 +191,14 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
     placeholder_img = None
     if placeholder_path:
         try:
-            placeholder_img = Image.open(placeholder_path).convert('L')
+            # Load as RGBA so we can flatten any alpha onto a white background
+            placeholder_img = Image.open(placeholder_path).convert('RGBA')
         except Exception:
             placeholder_img = None
 
     if placeholder_img is None:
-        # synthesize a simple placeholder graphic
-        placeholder_img = Image.new('L', (img_w, img_h), 0xEE)
+        # synthesize a simple placeholder graphic (RGBA)
+        placeholder_img = Image.new('RGBA', (img_w, img_h), (238, 238, 238, 255))
         pd = ImageDraw.Draw(placeholder_img)
         try:
             fpath = _choose_font_path()
@@ -211,20 +212,39 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
             th = bb[3] - bb[1]
         else:
             tw, th = pd.textsize(text, font=font)
-        pd.text(((img_w - tw) // 2, (img_h - th) // 2), text, font=font, fill=0)
+        pd.text(((img_w - tw) // 2, (img_h - th) // 2), text, font=font, fill=(0, 0, 0, 255))
 
-    # Resize placeholder preserving aspect, but don't upscale a smaller source
+    # Ensure placeholder is flattened onto a white background and resized to fit the reserved area.
     try:
-        if placeholder_img.width > img_w or placeholder_img.height > img_h:
-            placeholder_img.thumbnail((img_w, img_h), Image.LANCZOS)
+        # Convert to RGBA (already ensured above for loaded or synthesized)
+        src = placeholder_img
+        src_w, src_h = src.size
+        # Compute scale preserving aspect ratio; allow upscaling but cap to 2x to avoid pixelation
+        scale = min(img_w / src_w, img_h / src_h)
+        # cap upscale to reasonable factor
+        if scale > 2.0:
+            scale = 2.0
+        new_w = max(1, int(src_w * scale))
+        new_h = max(1, int(src_h * scale))
+        src_resized = src.resize((new_w, new_h), Image.LANCZOS)
+
+        # Create an RGBA background filled with white for compositing
+        bg = Image.new('RGBA', (img_w, img_h), (255, 255, 255, 255))
+        paste_x = (img_w - new_w) // 2
+        paste_y = 0
+        bg.paste(src_resized, (paste_x, paste_y), src_resized)
+
+        # Convert composited placeholder to 'L' mode for the main canvas
+        placeholder_final = bg.convert('L')
     except Exception:
-        try:
-            placeholder_img.thumbnail((img_w, img_h), Image.LANCZOS)
-        except Exception:
-            pass
-    px = (layout_w - placeholder_img.width) // 2
+        # Fallback: produce a simple gray box
+        placeholder_final = Image.new('L', (img_w, img_h), 0xEE)
+
+    px = (layout_w - placeholder_final.width) // 2
     py = 8
-    img.paste(placeholder_img, (px, py))
+    # Ensure the main canvas area is filled with white before pasting to avoid faint outlines
+    draw.rectangle((px, py, px + placeholder_final.width, py + placeholder_final.height), fill=255)
+    img.paste(placeholder_final, (px, py))
 
     # Draw selected knob values below the image
     short_dim = min(w, h)
