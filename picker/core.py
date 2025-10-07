@@ -12,6 +12,7 @@ from typing import Dict, Tuple
 from picker.hw import HW
 from picker.ui import compose_overlay, compose_message, compose_main_screen
 from picker.drivers.display_fast import init as display_init, blit, partial_update, full_update, clear_display
+from picker.drivers.display_fast import get_display_size
 from picker.config import load_texts, DEFAULT_DISPLAY
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,15 @@ class PickerCore:
         display_success = display_init(spi_device=spi_device, force_simulation=force_simulation, rotate=rotate)
         if not display_success:
             logger.warning("Display initialization failed - continuing in simulation mode")
+        else:
+            # If the driver reports an actual size, use it as the canonical display_size
+            real_size = get_display_size()
+            if real_size:
+                self.display_size = real_size
+                if rotate in ('CW', 'CCW'):
+                    self.effective_display_size = (self.display_size[1], self.display_size[0])
+                else:
+                    self.effective_display_size = self.display_size
 
     def handle_knob_change(self, ch: int, pos: int):
         # Compose overlay for knob channel ch

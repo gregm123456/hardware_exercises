@@ -141,3 +141,17 @@ def close():
             logger.error(f"Display close failed: {e}")
         finally:
             _display = None
+
+
+def get_display_size() -> tuple | None:
+    """Return (width, height) of the initialized display, or None if no display."""
+    global _display
+    if _display:
+        try:
+            w = getattr(_display, 'width', None)
+            h = getattr(_display, 'height', None)
+            if w and h:
+                return (int(w), int(h))
+        except Exception:
+            pass
+    return None
