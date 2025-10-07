@@ -125,6 +125,161 @@ def compose_message(message: str, full_screen: Tuple[int, int] = (DISPLAY_W, DIS
     return img
 
 
+def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, int] = (DISPLAY_W, DISPLAY_H), placeholder_path: str = None, rotate_output: str = None) -> Image.Image:
+    """Compose the main idle screen.
+
+    Layout: top-centred placeholder image (reserved 512x512 area where possible),
+    below which the currently selected values for knobs are listed.
+
+    - `texts` is the loaded texts mapping (e.g. load_texts()).
+    - `positions` is a dict mapping channel int -> position int (0..11).
+    - `placeholder_path` optionally overrides the default asset location.
+    Returns an L-mode PIL Image sized to full_screen.
+    """
+    w, h = full_screen
+
+    # If full_screen is landscape but we want the logical layout to be
+    # portrait (narrow/tall), compose on a portrait canvas (h x w) and then
+    # rotate the final image back to landscape. This produces a landscape
+    # PNG whose internal contents are portrait — matching a display mounted
+    # rotated 90 degrees.
+    auto_rotated = False
+    if w > h:
+        layout_w, layout_h = h, w
+        auto_rotated = True
+    else:
+        layout_w, layout_h = w, h
+
+    img = Image.new("L", (layout_w, layout_h), color=255)
+    draw = ImageDraw.Draw(img)
+
+    # Reserve image area at top - prefer 512x512 but clamp to available size
+    max_img_size = 512
+    img_w = min(max_img_size, layout_w - 20)
+    img_h = min(max_img_size, max(64, layout_h // 3))
+
+    # locate placeholder asset if not provided
+    if not placeholder_path:
+        try:
+            candidate = Path(__file__).parent / 'assets' / 'placeholder.png'
+            if candidate.exists():
+                placeholder_path = str(candidate)
+        except Exception:
+            placeholder_path = None
+
+    # load or synthesize placeholder
+    placeholder_img = None
+    if placeholder_path:
+        try:
+            placeholder_img = Image.open(placeholder_path).convert('L')
+        except Exception:
+            placeholder_img = None
+
+    if placeholder_img is None:
+        # synthesize a simple placeholder graphic
+        placeholder_img = Image.new('L', (img_w, img_h), 0xEE)
+        pd = ImageDraw.Draw(placeholder_img)
+        try:
+            fpath = _choose_font_path()
+            font = ImageFont.truetype(fpath, 24) if fpath else ImageFont.load_default()
+        except Exception:
+            font = ImageFont.load_default()
+        text = "PLACEHOLDER"
+        if hasattr(pd, 'textbbox'):
+            bb = pd.textbbox((0, 0), text, font=font)
+            tw = bb[2] - bb[0]
+            th = bb[3] - bb[1]
+        else:
+            tw, th = pd.textsize(text, font=font)
+        pd.text(((img_w - tw) // 2, (img_h - th) // 2), text, font=font, fill=0)
+
+    # Resize placeholder preserving aspect
+    placeholder_img.thumbnail((img_w, img_h), Image.LANCZOS)
+    px = (layout_w - placeholder_img.width) // 2
+    py = 8
+    img.paste(placeholder_img, (px, py))
+
+    # Draw selected knob values below the image
+    short_dim = min(w, h)
+    base_font_size = max(12, int(short_dim * DEFAULT_BASE_FONT_RATIO))
+    font_path = _choose_font_path()
+    try:
+        if font_path:
+            item_font = ImageFont.truetype(font_path, base_font_size)
+        else:
+            raise Exception("no font")
+    except Exception:
+        item_font = ImageFont.load_default()
+
+    # Collect selected non-empty values in standard knob order
+    knob_order = [0, 1, 2, 4, 5, 6]
+    entries = []
+    for ch in knob_order:
+        key = f"CH{ch}"
+        knob = texts.get(key)
+        values = knob.get('values', [""] * 12) if knob else [""] * 12
+        pos = positions.get(ch, 0)
+        sel = values[pos] if pos < len(values) else ""
+        if sel and sel.strip():
+            entries.append((knob.get('title', key) if knob else key, sel))
+
+    # Layout entries in a simple vertical list
+    margin = 8
+    y = py + placeholder_img.height + margin
+    side_x = 12
+    for title, sel in entries:
+        # draw title: value
+        try:
+            draw.text((side_x, y), f"{title}: {sel}", font=item_font, fill=0)
+            if hasattr(item_font, 'getsize'):
+                line_h = item_font.getsize(title)[1]
+            else:
+                line_h = base_font_size
+        except Exception:
+            draw.text((side_x, y), f"{title}: {sel}", fill=0)
+            line_h = base_font_size
+        y += max(line_h + 4, base_font_size + 4)
+
+    # Apply requested output rotation (convenience for saving a portrait-oriented
+    # image when the display is mounted rotated). This does not change how
+    # `PickerCore` composes images (it uses `effective_display_size`) and `blit`
+    # may also apply rotation when sending to the physical display.
+    if rotate_output:
+        try:
+            if rotate_output == 'CW':
+                img = img.rotate(-90, expand=True)
+            elif rotate_output == 'CCW':
+                img = img.rotate(90, expand=True)
+            elif rotate_output == 'flip':
+                img = img.transpose(Image.FLIP_LEFT_RIGHT)
+        except Exception:
+            # ignore rotation errors and return original
+            pass
+
+    # If we composed on a portrait canvas but the requested full_screen was
+    # landscape, rotate the result so the returned image has the original
+    # full_screen dimensions (landscape) but portrait-oriented contents.
+    if auto_rotated:
+        try:
+            img = img.rotate(-90, expand=True)
+        except Exception:
+            pass
+
+    # Apply any explicit requested rotation on top of auto-rotation
+    if rotate_output:
+        try:
+            if rotate_output == 'CW':
+                img = img.rotate(-90, expand=True)
+            elif rotate_output == 'CCW':
+                img = img.rotate(90, expand=True)
+            elif rotate_output == 'flip':
+                img = img.transpose(Image.FLIP_LEFT_RIGHT)
+        except Exception:
+            pass
+
+    return img
+
+
 if __name__ == "__main__":
     # quick visual smoke test
     title = "Sample Category"

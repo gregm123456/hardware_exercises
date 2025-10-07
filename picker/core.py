@@ -32,6 +32,8 @@ class PickerCore:
         self.overlay_timeout = 2.0  # seconds
         self.last_activity = 0.0
         self.current_knob = None
+        # track last-main view to avoid redundant blits
+        self.last_main_positions = {}
         self.running = False
         
         # Initialize display with proper SPI device
@@ -100,6 +102,25 @@ class PickerCore:
             img = compose_overlay("", [""] * 12, 0, full_screen=self.effective_display_size)
             blit(img, "clear_overlay", rotate=self.rotate)
             self.overlay_visible = False
+            # after clearing overlay, draw main idle screen
+        if not self.overlay_visible:
+            # build a simple positions dict mapping ch->pos
+            main_positions = {ch: pos for ch, (pos, changed) in positions.items()}
+            # only redraw main screen if the selected positions changed
+            if main_positions != self.last_main_positions:
+                try:
+                    img = compose_overlay("", [""] * 12, 0, full_screen=self.effective_display_size)
+                    # If a more complete main screen composer exists, prefer it
+                    try:
+                        from picker.ui import compose_main_screen
+                        main_img = compose_main_screen(self.texts, main_positions, full_screen=self.effective_display_size)
+                        img = main_img
+                    except Exception:
+                        pass
+                    blit(img, "main", rotate=self.rotate)
+                    self.last_main_positions = main_positions
+                except Exception:
+                    logger.exception("Failed to draw main screen")
 
     def run(self, run_seconds: float = None):
         self.running = True
