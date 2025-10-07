@@ -166,6 +166,27 @@ class HW:
             stable_required = 2
         self.mappers = {ch: KnobMapper(self.calib_map.get(ch, Calibration()), stable_required=stable_required) for ch in self.KNOB_CHANNELS}
 
+        # Seed mappers with current ADC readings so we don't emit a flurry of
+        # "changed" events at startup as the mappers learn the current knob
+        # positions. This makes the running behavior match user expectation: the
+        # initial physical positions are treated as the baseline.
+        try:
+            initial_raws = {ch: self.read_raw(ch) for ch in self.KNOB_CHANNELS}
+            now = time.time()
+            for ch, raw in initial_raws.items():
+                mapper = self.mappers.get(ch)
+                if not mapper:
+                    continue
+                mapper.state.last_raw = int(raw)
+                mapper.state.last_pos = mapper.raw_to_pos(int(raw))
+                mapper.state.stable_count = 0
+                mapper.state.last_change_time = now
+        except Exception:
+            # If the ADC isn't fully ready yet or a read fails, ignore and
+            # allow the normal mapping logic to initialize over the first few
+            # poll cycles.
+            pass
+
         # Button thresholds: read ADC and compare > threshold to detect press.
         # Default threshold is 0.2 of full-scale (can be tuned per channel via calib_map)
         self.button_threshold = {ch: 0.2 for ch in self.BUTTON_CHANNELS}
