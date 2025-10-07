@@ -158,7 +158,13 @@ class HW:
         self.poll_hz = poll_hz
         self.interval = 1.0 / max(1, poll_hz)
         self.calib_map = calib_map or {ch: Calibration() for ch in range(8)}
-        self.mappers = {ch: KnobMapper(self.calib_map.get(ch, Calibration())) for ch in self.KNOB_CHANNELS}
+        # Determine stable_required from poll_hz: higher poll rates need more samples
+        # to consider a reading stable. Keep a sensible minimum of 2 samples.
+        try:
+            stable_required = max(2, int(self.poll_hz // 20))
+        except Exception:
+            stable_required = 2
+        self.mappers = {ch: KnobMapper(self.calib_map.get(ch, Calibration()), stable_required=stable_required) for ch in self.KNOB_CHANNELS}
 
         # Button thresholds: read ADC and compare > threshold to detect press.
         # Default threshold is 0.2 of full-scale (can be tuned per channel via calib_map)
