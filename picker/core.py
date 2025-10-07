@@ -192,12 +192,20 @@ class PickerCore:
             ch_now = self.current_knob[0]
             last = self.last_activity_per_knob.get(ch_now, 0)
             if (time.time() - last) > self.overlay_timeout:
-                # clear overlay by drawing a blank frame
-                logger.debug("Clearing overlay due to timeout (per-knob)")
-                img = compose_overlay("", [""] * 12, 0, full_screen=self.effective_display_size)
-                blit(img, "clear_overlay", rotate=self.rotate, mode='FAST')
-                self.overlay_visible = False
-                self.current_knob = None
+                # Timeout: immediately return to the main screen without drawing
+                # an intermediate blank overlay which causes a visual bar.
+                logger.debug("Overlay timeout - returning to main screen (per-knob)")
+                try:
+                    # show_main composes and blits the main screen (uses high-quality mode)
+                    self.show_main()
+                except Exception:
+                    # Fallback: if composing main fails, clear minimally
+                    logger.exception("show_main failed during overlay timeout; falling back to clear")
+                    img = compose_overlay("", [""] * 12, 0, full_screen=self.effective_display_size)
+                    blit(img, "clear_overlay", rotate=self.rotate, mode='FAST')
+                finally:
+                    self.overlay_visible = False
+                    self.current_knob = None
 
         if not self.overlay_visible:
             # build a simple positions dict mapping ch->pos
