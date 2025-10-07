@@ -7,12 +7,13 @@ import signal
 import sys
 import logging
 import time
+import atexit
 
 from picker.hw import HW, SimulatedMCP3008, Calibration
 from picker.config import load_texts, DEFAULT_DISPLAY
 from picker.core import PickerCore
 from picker.ui import compose_message, compose_overlay
-from picker.drivers.display_fast import blit
+from picker.drivers.display_fast import blit, clear_display, close
 
 # Set up logging
 logging.basicConfig(
@@ -110,7 +111,30 @@ def main(argv=None):
     def handle_sigint(sig, frame):
         logger.info('Stopping picker application...')
         core.running = False
+        try:
+            # try to blank the display before exiting
+            logger.info('Clearing display before exit (SIGINT)')
+            clear_display()
+            # give the device a moment to finish any work (mirrors blank_screen.py)
+            time.sleep(0.5)
+            close()
+        except Exception as e:
+            logger.debug(f'Error while clearing display on SIGINT: {e}')
         sys.exit(0)
+
+    def _cleanup_display():
+        """Best-effort cleanup for display on normal exit or atexit."""
+        try:
+            logger.info('Running display cleanup at exit')
+            clear_display()
+            # give display time to complete clearing
+            time.sleep(0.5)
+            close()
+        except Exception as e:
+            logger.debug(f'Error during atexit display cleanup: {e}')
+
+    # Ensure cleanup runs on normal process exit
+    atexit.register(_cleanup_display)
 
     signal.signal(signal.SIGINT, handle_sigint)
     
