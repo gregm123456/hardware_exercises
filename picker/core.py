@@ -10,7 +10,7 @@ import logging
 from typing import Dict, Tuple
 
 from picker.hw import HW
-from picker.ui import compose_overlay, compose_message
+from picker.ui import compose_overlay, compose_message, compose_main_screen
 from picker.drivers.display_fast import init as display_init, blit, partial_update, full_update, clear_display
 from picker.config import load_texts, DEFAULT_DISPLAY
 
@@ -70,6 +70,17 @@ class PickerCore:
         blit(img, "reset", rotate=self.rotate)
         self.overlay_visible = False
         self.last_activity = time.time()
+
+    def show_main(self):
+        """Compose and blit the main idle screen immediately using current HW positions."""
+        try:
+            positions = self.hw.read_positions()
+            main_positions = {ch: pos for ch, (pos, changed) in positions.items()}
+            img = compose_main_screen(self.texts, main_positions, full_screen=self.effective_display_size)
+            blit(img, "main", rotate=self.rotate)
+            self.last_main_positions = main_positions
+        except Exception:
+            logger.exception("Failed to compose/show main screen")
 
     def loop_once(self):
         positions = self.hw.read_positions()

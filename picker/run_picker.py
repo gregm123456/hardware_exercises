@@ -87,6 +87,11 @@ def main(argv=None):
         logger.info("Clearing startup message")
         clear_img = compose_overlay("", [""] * 12, 0, full_screen=(args.display_w, args.display_h))
         blit(clear_img, "clear_start", rotate=(None if args.rotate == 'none' else args.rotate))
+        # Show the main placeholder screen immediately so the device isn't blank
+        try:
+            core.show_main()
+        except Exception as e:
+            logger.debug(f"show_main failed: {e}")
         logger.info("Ready - entering main loop")
     except Exception as e:
         # If display or PIL fails, continue silently to the main loop
