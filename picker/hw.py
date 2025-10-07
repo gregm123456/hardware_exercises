@@ -166,20 +166,38 @@ class HW:
             stable_required = 2
         self.mappers = {ch: KnobMapper(self.calib_map.get(ch, Calibration()), stable_required=stable_required) for ch in self.KNOB_CHANNELS}
 
+        # Store stable_required for use in seeding
+        self.stable_required = stable_required
+        
         # Seed mappers with current ADC readings so we don't emit a flurry of
         # "changed" events at startup as the mappers learn the current knob
         # positions. This makes the running behavior match user expectation: the
         # initial physical positions are treated as the baseline.
+        self._seed_mappers()
+        
+    def _seed_mappers(self):
+        """Seed all mappers with current ADC readings to prevent startup events."""
         try:
-            initial_raws = {ch: self.read_raw(ch) for ch in self.KNOB_CHANNELS}
+            # Read current ADC values multiple times and use stable readings
+            readings = []
+            for _ in range(3):
+                readings.append({ch: self.read_raw(ch) for ch in self.KNOB_CHANNELS})
+                time.sleep(0.001)  # small delay between readings
+            
+            # Use the last reading (most stable)
+            initial_raws = readings[-1]
             now = time.time()
+            
             for ch, raw in initial_raws.items():
                 mapper = self.mappers.get(ch)
                 if not mapper:
                     continue
-                mapper.state.last_raw = int(raw)
-                mapper.state.last_pos = mapper.raw_to_pos(int(raw))
-                mapper.state.stable_count = 0
+                # Properly initialize the mapper state
+                raw_int = int(raw)
+                pos = mapper.raw_to_pos(raw_int)
+                mapper.state.last_raw = raw_int
+                mapper.state.last_pos = pos
+                mapper.state.stable_count = self.stable_required  # Mark as already stable
                 mapper.state.last_change_time = now
         except Exception:
             # If the ADC isn't fully ready yet or a read fails, ignore and

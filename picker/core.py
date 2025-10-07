@@ -36,6 +36,12 @@ class PickerCore:
         # track last-main view to avoid redundant blits
         self.last_main_positions = {}
         self.running = False
+        # Add startup protection - ignore changes for first few seconds
+        self.startup_time = time.time()
+        self.startup_grace_period = 3.0  # seconds
+        # Add startup protection - ignore changes for first few seconds
+        self.startup_time = time.time()
+        self.startup_grace_period = 3.0  # seconds
         
         # Initialize display with proper SPI device
         logger.info(f"Initializing display on SPI device {spi_device} (rotate={rotate})")
@@ -54,6 +60,11 @@ class PickerCore:
                     self.effective_display_size = self.display_size
 
     def handle_knob_change(self, ch: int, pos: int):
+        # Ignore knob changes during startup grace period
+        if time.time() - self.startup_time < self.startup_grace_period:
+            logger.debug(f"Ignoring startup knob change: CH{ch} -> position {pos}")
+            return
+            
         # Compose overlay for knob channel ch
         key = f"CH{ch}"
         knob = self.texts.get(key)
