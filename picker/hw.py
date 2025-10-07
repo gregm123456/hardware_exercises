@@ -207,6 +207,10 @@ class HW:
         # Store stable_required for use in seeding
         self.stable_required = stable_required
         
+        # Button thresholds: read ADC and compare > threshold to detect press.
+        # Default threshold is 0.2 of full-scale (can be tuned per channel via calib_map)
+        self.button_threshold = {ch: 0.2 for ch in self.BUTTON_CHANNELS}
+        
         # Seed mappers with current ADC readings so we don't emit a flurry of
         # "changed" events at startup as the mappers learn the current knob
         # positions. This makes the running behavior match user expectation: the
@@ -268,10 +272,6 @@ class HW:
                     
         except Exception as e:
             print(f"Warning: Could not load calibration file {calib_file}: {e}")
-
-        # Button thresholds: read ADC and compare > threshold to detect press.
-        # Default threshold is 0.2 of full-scale (can be tuned per channel via calib_map)
-        self.button_threshold = {ch: 0.2 for ch in self.BUTTON_CHANNELS}
 
     def read_raw(self, ch: int) -> int:
         """Read raw ADC counts from the underlying ADC reader.
