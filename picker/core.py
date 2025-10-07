@@ -43,7 +43,7 @@ class PickerCore:
 
         # Add startup protection - ignore changes for first few seconds
         self.startup_time = time.time()
-        self.startup_grace_period = 3.0  # seconds
+        self.startup_grace_period = 1.0  # seconds (reduced for testing)
 
         # Initialize display with proper SPI device
         logger.info(f"Initializing display on SPI device {spi_device} (rotate={rotate})")
