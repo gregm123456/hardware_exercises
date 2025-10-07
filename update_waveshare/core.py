@@ -180,11 +180,12 @@ def display_image(image_path: str, *, prev_image_path: Optional[str] = None, dev
     if mode == 'full' or prev_img is None:
         device.frame_buf.paste(new_img)
         
-        # For 'auto' mode, force the best quality path: 4BPP with two-pass and dithering
+        # For smooth, flicker-free menu updates, use only DU mode
         if mode == 'auto':
-            print("--> Using auto mode: 4BPP dithered with two-pass")
-            device.draw_full(DisplayModes.GC16)
-            # Always do two-pass for auto mode to maximize quality
+            print("--> Using auto mode: DU-only for flicker-free updates")
+            device.draw_full(DisplayModes.DU)
+        elif mode == 'FAST':
+            print("--> Using FAST mode: DU-only for lightning speed")
             device.draw_full(DisplayModes.DU)
         elif (mode == 'full' and no_quant):
             print("--> Using explicit 8BPP update path")
@@ -202,12 +203,9 @@ def display_image(image_path: str, *, prev_image_path: Optional[str] = None, dev
                     device.update(frame.tobytes(), (0,0), device.display_dims, DisplayModes.DU)
             device.prev_frame = frame
         else:
-            # Use the default 4BPP path for quantized images
-            print("--> Using default 4BPP update path")
-            device.draw_full(DisplayModes.GC16)
-            # optional second pass (DU) to improve contrast/clean edges
-            if two_pass:
-                device.draw_full(DisplayModes.DU)
+            # Use DU-only for flicker-free 4BPP path
+            print("--> Using flicker-free 4BPP update path (DU-only)")
+            device.draw_full(DisplayModes.DU)
 
         regions = [(0,0,device.width,device.height)]
     else:
