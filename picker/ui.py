@@ -153,10 +153,30 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
     img = Image.new("L", (layout_w, layout_h), color=255)
     draw = ImageDraw.Draw(img)
 
-    # Reserve image area at top - prefer 512x512 but clamp to available size
+    # Determine desired reserved image size from texts meta or default
     max_img_size = 512
-    img_w = min(max_img_size, layout_w - 20)
-    img_h = min(max_img_size, max(64, layout_h // 3))
+    try:
+        meta = texts.get('meta', {}) if isinstance(texts, dict) else {}
+        reserved = meta.get('reserved_image_area', {})
+        desired_w = int(reserved.get('width', max_img_size))
+        desired_h = int(reserved.get('height', max_img_size))
+    except Exception:
+        desired_w = max_img_size
+        desired_h = max_img_size
+
+    # Clamp desired to available layout. Prefer to show the placeholder at the
+    # desired size if there's room; otherwise scale down to fit.
+    pad = 20
+    avail_w = max(0, layout_w - pad)
+    avail_h = max(0, layout_h - pad)
+    if avail_w >= desired_w and avail_h >= desired_h + 100:
+        # Enough space to show desired size and leave room for text
+        img_w = min(desired_w, avail_w)
+        img_h = min(desired_h, avail_h)
+    else:
+        # Fallback: use a fraction of layout height (previous behaviour)
+        img_w = min(max_img_size, layout_w - 20)
+        img_h = min(max_img_size, max(64, layout_h // 3))
 
     # locate placeholder asset if not provided
     if not placeholder_path:
@@ -193,8 +213,15 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
             tw, th = pd.textsize(text, font=font)
         pd.text(((img_w - tw) // 2, (img_h - th) // 2), text, font=font, fill=0)
 
-    # Resize placeholder preserving aspect
-    placeholder_img.thumbnail((img_w, img_h), Image.LANCZOS)
+    # Resize placeholder preserving aspect, but don't upscale a smaller source
+    try:
+        if placeholder_img.width > img_w or placeholder_img.height > img_h:
+            placeholder_img.thumbnail((img_w, img_h), Image.LANCZOS)
+    except Exception:
+        try:
+            placeholder_img.thumbnail((img_w, img_h), Image.LANCZOS)
+        except Exception:
+            pass
     px = (layout_w - placeholder_img.width) // 2
     py = 8
     img.paste(placeholder_img, (px, py))
