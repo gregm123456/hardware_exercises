@@ -101,7 +101,8 @@ class PickerCore:
             
             logger.info(f"Knob change: CH{ch} -> position {pos} ('{title}')")
             img = compose_overlay(title, values, pos, full_screen=self.effective_display_size)
-            blit(img, f"overlay_ch{ch}_pos{pos}", rotate=self.rotate)
+            # Use FAST mode for knob overlays to avoid flicker
+            blit(img, f"overlay_ch{ch}_pos{pos}", rotate=self.rotate, mode='FAST')
             
             # Mark overlay visible for this knob
             self.overlay_visible = True
@@ -120,7 +121,7 @@ class PickerCore:
     def handle_go(self):
         logger.info("GO button pressed!")
         img = compose_message("GO!", full_screen=self.effective_display_size)
-        blit(img, "go", rotate=self.rotate)
+        blit(img, "go", rotate=self.rotate, mode='FAST')
         # GO overrides any overlay; clear overlay state
         self.overlay_visible = False
         self.current_knob = None
@@ -128,7 +129,7 @@ class PickerCore:
     def handle_reset(self):
         logger.info("RESET button pressed!")
         img = compose_message("RESETTING", full_screen=self.effective_display_size)
-        blit(img, "reset", rotate=self.rotate)
+        blit(img, "reset", rotate=self.rotate, mode='FAST')
         # RESET overrides any overlay; clear overlay state
         self.overlay_visible = False
         self.current_knob = None
@@ -139,7 +140,8 @@ class PickerCore:
             positions = self.hw.read_positions()
             main_positions = {ch: pos for ch, (pos, changed) in positions.items()}
             img = compose_main_screen(self.texts, main_positions, full_screen=self.effective_display_size)
-            blit(img, "main", rotate=self.rotate)
+            # Use auto mode for main screen to get proper grayscale rendering for images
+            blit(img, "main", rotate=self.rotate, mode='auto')
             self.last_main_positions = main_positions
         except Exception:
             logger.exception("Failed to compose/show main screen")
@@ -193,7 +195,7 @@ class PickerCore:
                 # clear overlay by drawing a blank frame
                 logger.debug("Clearing overlay due to timeout (per-knob)")
                 img = compose_overlay("", [""] * 12, 0, full_screen=self.effective_display_size)
-                blit(img, "clear_overlay", rotate=self.rotate)
+                blit(img, "clear_overlay", rotate=self.rotate, mode='FAST')
                 self.overlay_visible = False
                 self.current_knob = None
 

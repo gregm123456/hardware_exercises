@@ -47,7 +47,7 @@ def init(spi_device=0, force_simulation=False, rotate: str = None):
         return False
 
 
-def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None) -> Path:
+def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None, mode: str = 'auto') -> Path:
     """Write a full-screen bitmap to the real display if available; otherwise save to /tmp.
 
     Hardware setup: epaper display is on CE0. Uses standalone e-paper driver for 
@@ -72,17 +72,17 @@ def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None
     tmp = OUT_DIR / f"{file_label}.png"
     img_to_send.save(tmp)
     
-    # Try to update the actual display with FAST mode for responsiveness
+    # Try to update the actual display with requested mode
     if _display:
         try:
-            _display.display_image(img_to_send, mode='FAST')
-            logger.debug(f"Fast display update completed: {file_label}")
+            _display.display_image(img_to_send, mode=mode)
+            logger.debug(f"Display update completed ({mode}): {file_label}")
         except Exception as e:
-            logger.error(f"Fast display update failed: {e}")
-            # Fallback to auto mode if FAST fails
+            logger.error(f"Display update failed ({mode}): {e}")
+            # Fallback to auto mode if requested mode fails
             try:
                 _display.display_image(img_to_send, mode='auto')
-                logger.info(f"Fallback display update completed: {file_label}")
+                logger.info(f"Fallback display update completed (auto): {file_label}")
             except Exception as e2:
                 logger.error(f"Fallback display update also failed: {e2}")
     else:

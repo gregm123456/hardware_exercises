@@ -168,15 +168,14 @@ class EnhancedIT8951Display:
         
         if mode == 'auto' or mode == 'full':
             if IT8951_AVAILABLE:
-                # Use only DU mode for fast, flicker-free updates
-                # Eliminates the bright/dark inversion during menu changes
-                self.display.draw_full(DisplayModes.DU)
+                # Use GC16 for proper grayscale rendering (images need this)
+                self.display.draw_full(DisplayModes.GC16)
         elif mode == 'partial':
             if IT8951_AVAILABLE:
                 self.display.draw_partial(DisplayModes.DU)
         elif mode == 'FAST':
             if IT8951_AVAILABLE:
-                # Lightning-fast DU-only mode
+                # Lightning-fast DU-only mode for menus
                 self.display.draw_partial(DisplayModes.DU)
         
         logger.info(f"Display updated with mode {mode}")

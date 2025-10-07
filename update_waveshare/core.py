@@ -183,10 +183,11 @@ def display_image(image_path: str, *, prev_image_path: Optional[str] = None, dev
     if mode == 'full' or prev_img is None:
         device.frame_buf.paste(new_img)
         
-        # For smooth, flicker-free menu updates, use only DU mode
+        # For smooth, flicker-free menu updates, use only DU mode for auto
+        # But for main screen with images, we need proper grayscale rendering
         if mode == 'auto':
-            print("--> Using auto mode: DU-only for flicker-free updates")
-            device.draw_full(DisplayModes.DU)
+            print("--> Using auto mode: GC16 for image quality")
+            device.draw_full(DisplayModes.GC16)
         elif mode == 'FAST':
             print("--> Using FAST mode: DU-only for lightning speed")
             device.draw_full(DisplayModes.DU)
@@ -206,9 +207,9 @@ def display_image(image_path: str, *, prev_image_path: Optional[str] = None, dev
                     device.update(frame.tobytes(), (0,0), device.display_dims, DisplayModes.DU)
             device.prev_frame = frame
         else:
-            # Use DU-only for flicker-free 4BPP path
-            print("--> Using flicker-free 4BPP update path (DU-only)")
-            device.draw_full(DisplayModes.DU)
+            # Use GC16 for image quality in 4BPP path
+            print("--> Using GC16 for image quality (4BPP path)")
+            device.draw_full(DisplayModes.GC16)
 
         regions = [(0,0,device.width,device.height)]
     else:
