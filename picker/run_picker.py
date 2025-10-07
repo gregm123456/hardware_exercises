@@ -39,6 +39,10 @@ def main(argv=None):
     p.add_argument("--force-simulation", action="store_true", help="Force display simulation mode")
     p.add_argument("--verbose", action="store_true", help="Enable debug logging")
     p.add_argument("--calibration", type=str, help="Path to knob calibration JSON file")
+    p.add_argument("--run-calibrator", action="store_true",
+                   help="Run the interactive calibrator before starting the picker (passes through settle-confirm)")
+    p.add_argument("--calibrate-settle-confirm", type=int, default=None,
+                   help="When running the calibrator via --run-calibrator, pass this as --settle-confirm to the calibrator. If omitted the calibrator default is used.")
     args = p.parse_args(argv)
     
     if args.verbose:
@@ -48,6 +52,45 @@ def main(argv=None):
     logger.info(f"Starting picker - ADC on CE{args.adc_spi_device}, Display on CE{args.display_spi_device}")
     
     texts = load_texts(args.config) if args.config else load_texts()
+
+    # If user requested to run the calibrator through run_picker, invoke it
+    # here and optionally forward the settle-confirm value. Running the
+    # calibrator is intentionally done before initializing the main HW/core so
+    # the interactive tool can run standalone and the process exits after
+    # calibration unless the user continues deliberately.
+    if args.run_calibrator:
+        try:
+            import picker.calibrate as calibrate
+            # Build a minimal args namespace for the calibrator
+            class _A: pass
+            cal_args = _A()
+            # default outfile
+            cal_args.outfile = 'picker_calibration.json'
+            cal_args.rate = 50.0
+            cal_args.vref = 3.3
+            cal_args.settle_window = 0.25
+            cal_args.settle_threshold = 0.02
+            cal_args.cluster_tol = 0.05
+            # if user provided a settle-confirm forward it
+            cal_args.settle_confirm = args.calibrate_settle_confirm if args.calibrate_settle_confirm is not None else 3
+            cal_args.adc_spi_port = args.adc_spi_port
+            cal_args.adc_spi_device = args.adc_spi_device
+
+            logger.info(f"Running interactive calibrator (confirm={cal_args.settle_confirm})")
+            rc = calibrate.run_calibrator(cal_args)
+            # If run_calibrator returns non-zero, log and exit with that code
+            if rc not in (None, 0):
+                logger.error(f"Calibrator exited with code {rc}")
+                return int(rc)
+            # After successful calibration, continue to start picker if the
+            # user also supplied --calibration and wants to run immediately.
+            # Otherwise exit so the user can re-run with --calibration.
+            if not args.calibration:
+                logger.info('Calibration complete; no --calibration file provided, exiting.')
+                return 0
+        except Exception as e:
+            logger.error(f"Failed to run calibrator in-process: {e}")
+            return 1
 
     if args.simulate:
         logger.info("Using simulated ADC")

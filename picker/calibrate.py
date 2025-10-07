@@ -38,15 +38,30 @@ def median(xs):
 
 
 class KnobCalibrator:
-    """Calibrates a single knob channel by detecting stable voltage positions."""
+    """Calibrates a single knob channel by detecting stable voltage positions.
+
+    This calibrator can require multiple consecutive settled windows before
+    accepting a position. That makes the interactive calibration tool less
+    sensitive to quick sweeps and accidental jitter. The confirmation count is
+    configurable via the CLI argument --settle-confirm and only affects the
+    calibration tool (does not change runtime mapping behavior).
+    """
     
     def __init__(self, ch_index: int, vref: float = 3.3, window_size: int = 10, 
-                 settle_thresh: float = 0.02, cluster_tol: float = 0.05):
+                 settle_thresh: float = 0.02, cluster_tol: float = 0.05, confirm_required: int = 3):
         self.ch = ch_index
         self.vref = vref
         self.window = collections.deque(maxlen=window_size)
         self.settle_thresh = settle_thresh
         self.cluster_tol = cluster_tol
+        # Number of consecutive settled windows required to confirm a new
+        # position during calibration. This slows detection (by design) and is
+        # only used by the calibrator.
+        self.confirm_required = max(1, int(confirm_required))
+        # internal consecutive settled window counter and last median used for
+        # stability checks.
+        self._consecutive_settled = 0
+        self._last_median = None
         # detected positions: list of (voltage, count) for incremental averaging
         self.positions = []
         self.last_reported = None
@@ -72,22 +87,42 @@ class KnobCalibrator:
             
         # Consider settled if voltage range is within threshold
         if voltage_range <= self.settle_thresh:
-            # Try to cluster with existing positions
-            for i, (pos_voltage, count) in enumerate(self.positions):
-                if abs(pos_voltage - med) <= self.cluster_tol:
-                    # Update running average
-                    new_count = count + 1
-                    new_voltage = (pos_voltage * count + med) / new_count
-                    self.positions[i] = (new_voltage, new_count)
-                    self.last_reported = new_voltage
-                    return new_voltage
-                    
-            # New position - add it
-            self.positions.append((med, 1))
-            self.last_reported = med
-            return med
+            # Check if this median is consistent with the previous settled
+            # median (within cluster tolerance). If so, increment the
+            # consecutive settled-window counter; otherwise start over at one.
+            if self._last_median is None or abs(self._last_median - med) <= self.cluster_tol:
+                self._consecutive_settled += 1
+            else:
+                self._consecutive_settled = 1
+            self._last_median = med
+
+            # Only register the position after we've seen the required number
+            # of consecutive settled windows. This reduces false positives
+            # during quick sweeps.
+            if self._consecutive_settled >= self.confirm_required:
+                # Try to cluster with existing positions
+                for i, (pos_voltage, count) in enumerate(self.positions):
+                    if abs(pos_voltage - med) <= self.cluster_tol:
+                        # Update running average
+                        new_count = count + 1
+                        new_voltage = (pos_voltage * count + med) / new_count
+                        self.positions[i] = (new_voltage, new_count)
+                        self.last_reported = new_voltage
+                        # reset consecutive counter so we don't repeatedly add
+                        self._consecutive_settled = 0
+                        return new_voltage
+
+                # New position - add it
+                self.positions.append((med, 1))
+                self.last_reported = med
+                self._consecutive_settled = 0
+                return med
+            # otherwise, not yet confirmed
+            return None
         else:
-            # Not settled
+            # Not settled; reset confirmation state
+            self._consecutive_settled = 0
+            self._last_median = None
             self.last_reported = None
             return None
 
@@ -114,7 +149,8 @@ def run_calibrator(args):
     calibrators = {}
     for ch in hw.KNOB_CHANNELS:
         calibrators[ch] = KnobCalibrator(
-            ch, args.vref, window_size, args.settle_threshold, args.cluster_tol
+            ch, args.vref, window_size, args.settle_threshold, args.cluster_tol,
+            confirm_required=args.settle_confirm
         )
 
     # Setup threading for Enter detection
@@ -277,6 +313,8 @@ def main():
                         help='Maximum voltage range to consider settled (default: 0.02)')
     parser.add_argument('--cluster-tol', type=float, default=0.05,
                         help='Voltage tolerance for clustering positions (default: 0.05)')
+    parser.add_argument('--settle-confirm', type=int, default=3,
+                        help='Number of consecutive settled windows required to confirm a position during calibration (default: 3). This only affects the calibration tool.')
     parser.add_argument('--adc-spi-port', type=int, default=0,
                         help='SPI port for ADC (default: 0)')
     parser.add_argument('--adc-spi-device', type=int, default=1,

@@ -13,7 +13,7 @@ PYTHONPATH=. python picker/run_picker.py --calibration picker/mcp3008_calibratio
 
 1. **Run the calibrator:**
    ```bash
-   PYTHONPATH=. python picker/calibrate.py --outfile my_picker_calibration.json
+  PYTHONPATH=. python picker/calibrate.py --outfile my_picker_calibration.json
    ```
 
 2. **Follow the interactive process:**
@@ -26,6 +26,32 @@ PYTHONPATH=. python picker/run_picker.py --calibration picker/mcp3008_calibratio
    ```bash
    PYTHONPATH=. python picker/run_picker.py --calibration my_picker_calibration.json
    ```
+
+### Run calibrator via run_picker
+
+You can also launch the interactive calibrator through `run_picker.py` and optionally
+forward the confirmation count. This runs the calibrator in-process and (by default)
+exits when calibration completes unless you also provide `--calibration` to start
+the picker immediately with the newly-created file.
+
+Examples:
+
+Run the calibrator with the default confirmation (3 consecutive settled windows):
+```bash
+PYTHONPATH=. python picker/run_picker.py --run-calibrator
+```
+
+Run the calibrator but require 5 consecutive settled windows before accepting a
+position (slower but more conservative):
+```bash
+PYTHONPATH=. python picker/run_picker.py --run-calibrator --calibrate-settle-confirm 5
+```
+
+Run the calibrator and immediately start the picker using the specified
+calibration JSON (the calibrator will run first, then the picker will start):
+```bash
+PYTHONPATH=. python picker/run_picker.py --run-calibrator --calibration my_picker_calibration.json
+```
 
 ## How It Works
 
