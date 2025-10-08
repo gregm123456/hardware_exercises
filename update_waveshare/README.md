@@ -46,7 +46,7 @@ API: core.display_image()
 --------------------------------
 Signature (summary):
 
-display_image(image_path: str, *, prev_image_path: Optional[str] = None, device=None, vcom: float = -2.06, rotate: Optional[str] = None, mirror: bool = False, virtual: bool = False, mode: str = 'auto', dither: bool = False, two_pass: bool = False, no_quant: bool = False) -> Optional[List[Tuple[int,int,int,int]]]
+display_image(image_path: str, *, prev_image_path: Optional[str] = None, device=None, vcom: float = -2.06, rotate: Optional[str] = None, mirror: bool = False, virtual: bool = False, mode: str = 'auto', dither: bool = False, two_pass: bool = False, no_quant: bool = False, gamma: float = 1.0) -> Optional[List[Tuple[int,int,int,int]]]
 
 Key behaviour and parameters:
 - image_path: Path to the image file to display. Images are opened with
@@ -76,6 +76,10 @@ Key behaviour and parameters:
 - no_quant: When True and doing a full update, skip quantization and send an
 	8-bit image to the device instead of converting to 4bpp. Useful when the
 	driver or display expects plain 8-bit grayscale.
+- gamma: Gamma correction factor (default 1.0 = no correction). Values > 1.0
+	lighten midtones while preserving black and white points, making images
+	appear brighter on e-paper displays. Typical values: 1.5-2.2 for brightening.
+	This is applied after grayscale conversion but before quantization.
 
 Return value:
 - A list of updated regions (one or more (minx, miny, maxx, maxy) tuples) or
@@ -132,6 +136,7 @@ Available CLI flags (short summary):
 - `--dither` : enable dithering for 4bpp quantization
 - `--two-pass` : run a GC16 full pass followed by a DU full pass
 - `--no-quant` : send 8-bit image on a full update instead of quantizing
+- `--gamma` : gamma correction factor (default 1.0, use 1.5-2.2 for brightening)
 
 Notes on running `simple_update.py` directly
 - `simple_update.py` contains a small fallback which inserts the repository

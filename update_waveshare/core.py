@@ -6,12 +6,49 @@ from typing import Optional, Tuple, List
 from pathlib import Path
 from PIL import Image, ImageChops
 import os
+import numpy as np
 
 from ._device import create_device
 from IT8951.constants import DisplayModes
 
 
-def _load_and_prepare(image_path: str, target_size: Tuple[int,int], target_bpp: Optional[int] = None, dither: bool = False, supersample: int = 1, preview_out: Optional[str] = None, color_mode: str = 'standard') -> Image.Image:
+def _apply_gamma_correction(img: Image.Image, gamma: float) -> Image.Image:
+    """Apply gamma correction to a grayscale image.
+    
+    Gamma correction adjusts the midtones while preserving black and white points.
+    gamma > 1.0 lightens midtones (makes image brighter)
+    gamma < 1.0 darkens midtones
+    gamma = 1.0 no change
+    
+    Args:
+        img: PIL Image in mode 'L' (grayscale)
+        gamma: Gamma correction factor (typically 1.0 to 2.5 for brightening)
+    
+    Returns:
+        Gamma-corrected PIL Image
+    """
+    if gamma == 1.0:
+        return img
+    
+    # Convert to numpy array for efficient gamma correction
+    img_array = np.array(img, dtype=np.float32)
+    
+    # Normalize to 0-1 range
+    img_array = img_array / 255.0
+    
+    # Apply gamma correction: output = input^(1/gamma)
+    img_array = np.power(img_array, 1.0 / gamma)
+    
+    # Scale back to 0-255
+    img_array = img_array * 255.0
+    
+    # Convert back to uint8 and create PIL Image
+    img_array = np.clip(img_array, 0, 255).astype(np.uint8)
+    
+    return Image.fromarray(img_array)
+
+
+def _load_and_prepare(image_path: str, target_size: Tuple[int,int], target_bpp: Optional[int] = None, dither: bool = False, supersample: int = 1, preview_out: Optional[str] = None, color_mode: str = 'standard', gamma: float = 1.0) -> Image.Image:
     """Load image, resize to target_size and optionally quantize to target_bpp (2/4/8).
 
     If dither is True and target_bpp is 4, a 16-color Floyd-Steinberg quantize will be used
@@ -22,6 +59,8 @@ def _load_and_prepare(image_path: str, target_size: Tuple[int,int], target_bpp: 
     - 'luminance': Weighted luminance conversion (0.299*R + 0.587*G + 0.114*B)
     - 'average': Simple average of RGB channels
     - 'red', 'green', 'blue': Use single color channel
+    
+    gamma: Gamma correction factor (1.0 = no change, >1.0 = brighten midtones)
     """
     img = Image.open(image_path)
     
@@ -64,6 +103,10 @@ def _load_and_prepare(image_path: str, target_size: Tuple[int,int], target_bpp: 
     x = (work_size[0] - img.width)//2
     y = (work_size[1] - img.height)//2
     out.paste(img, (x, y))
+    
+    # Apply gamma correction if requested (after resize, before quantization)
+    if gamma != 1.0:
+        out = _apply_gamma_correction(out, gamma)
 
     if target_bpp is None:
         result = out if supersample and supersample > 1 else out
@@ -143,7 +186,7 @@ def partial_refresh(prev: Image.Image, new: Image.Image, round_to: int = 4) -> O
     return (minx, miny, maxx, maxy)
 
 
-def display_image(image_path: str, *, prev_image_path: Optional[str] = None, device=None, vcom: float = -2.06, rotate: Optional[str] = None, mirror: bool = False, virtual: bool = False, mode: str = 'auto', dither: bool = False, two_pass: bool = False, no_quant: bool = False, color_mode: str = 'standard') -> Optional[List[Tuple[int,int,int,int]]]:
+def display_image(image_path: str, *, prev_image_path: Optional[str] = None, device=None, vcom: float = -2.06, rotate: Optional[str] = None, mirror: bool = False, virtual: bool = False, mode: str = 'auto', dither: bool = False, two_pass: bool = False, no_quant: bool = False, color_mode: str = 'standard', gamma: float = 1.0) -> Optional[List[Tuple[int,int,int,int]]]:
     """Display `image_path` on the device.
 
     If `prev_image_path` is provided and `mode` allows, compute a partial update.
@@ -161,22 +204,22 @@ def display_image(image_path: str, *, prev_image_path: Optional[str] = None, dev
     # For 'full' mode, choose quantization based on no_quant flag
     if mode == 'auto':
         # Force high-quality 4BPP dithered preparation for auto mode
-        new_img = _load_and_prepare(image_path, target_size, target_bpp=4, dither=True, color_mode=color_mode)
+        new_img = _load_and_prepare(image_path, target_size, target_bpp=4, dither=True, color_mode=color_mode, gamma=gamma)
     elif mode == 'full_quality':
         # For guaranteed best fidelity, prepare full-resolution without quantization
-        new_img = _load_and_prepare(image_path, target_size, target_bpp=8, dither=False, color_mode=color_mode)
+        new_img = _load_and_prepare(image_path, target_size, target_bpp=8, dither=False, color_mode=color_mode, gamma=gamma)
     elif mode == 'full':
         if no_quant:
-            new_img = _load_and_prepare(image_path, target_size, target_bpp=8, dither=False, color_mode=color_mode)
+            new_img = _load_and_prepare(image_path, target_size, target_bpp=8, dither=False, color_mode=color_mode, gamma=gamma)
         else:
-            new_img = _load_and_prepare(image_path, target_size, target_bpp=4, dither=dither, color_mode=color_mode)
+            new_img = _load_and_prepare(image_path, target_size, target_bpp=4, dither=dither, color_mode=color_mode, gamma=gamma)
     else:
-        new_img = _load_and_prepare(image_path, target_size, color_mode=color_mode)
+        new_img = _load_and_prepare(image_path, target_size, color_mode=color_mode, gamma=gamma)
 
     prev_img = None
     if prev_image_path:
         if os.path.exists(prev_image_path):
-            prev_img = _load_and_prepare(prev_image_path, target_size, target_bpp=4, dither=dither if mode=='full' else False, color_mode=color_mode)
+            prev_img = _load_and_prepare(prev_image_path, target_size, target_bpp=4, dither=dither if mode=='full' else False, color_mode=color_mode, gamma=gamma)
 
     # if mode==full or no prev image, do full
     regions = []

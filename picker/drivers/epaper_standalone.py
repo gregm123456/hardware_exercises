@@ -9,6 +9,7 @@ from typing import Optional, Tuple, Union
 from pathlib import Path
 from PIL import Image, ImageChops
 import logging
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +61,46 @@ class Registers:
     I80CPCR = 0x04
 
 
+def _apply_gamma_correction(img: Image.Image, gamma: float) -> Image.Image:
+    """Apply gamma correction to a grayscale image.
+    
+    Gamma correction adjusts the midtones while preserving black and white points.
+    gamma > 1.0 lightens midtones (makes image brighter)
+    gamma < 1.0 darkens midtones
+    gamma = 1.0 no change
+    
+    Args:
+        img: PIL Image in mode 'L' (grayscale)
+        gamma: Gamma correction factor (typically 1.0 to 2.5 for brightening)
+    
+    Returns:
+        Gamma-corrected PIL Image
+    """
+    if gamma == 1.0:
+        return img
+    
+    # Convert to numpy array for efficient gamma correction
+    img_array = np.array(img, dtype=np.float32)
+    
+    # Normalize to 0-1 range
+    img_array = img_array / 255.0
+    
+    # Apply gamma correction: output = input^(1/gamma)
+    img_array = np.power(img_array, 1.0 / gamma)
+    
+    # Scale back to 0-255
+    img_array = img_array * 255.0
+    
+    # Convert back to uint8 and create PIL Image
+    img_array = np.clip(img_array, 0, 255).astype(np.uint8)
+    
+    return Image.fromarray(img_array)
+
+
 class IT8951Display:
     """Standalone IT8951 e-paper display driver."""
     
-    def __init__(self, spi_bus=0, spi_device=0, vcom=-2.06, width=1448, height=1072):
+    def __init__(self, spi_bus=0, spi_device=0, vcom=-2.06, width=1448, height=1072, gamma=1.0):
         """Initialize the display.
         
         Args:
@@ -72,12 +109,14 @@ class IT8951Display:
             vcom: VCOM voltage
             width: Display width in pixels
             height: Display height in pixels
+            gamma: Gamma correction factor (1.0=no change, >1.0=brighten midtones)
         """
         self.spi_bus = spi_bus
         self.spi_device = spi_device
         self.vcom = vcom
         self.width = width
         self.height = height
+        self.gamma = gamma
         self.spi = None
         self.frame_buf = Image.new('L', (width, height), 0xFF)
         
@@ -217,6 +256,11 @@ class IT8951Display:
         y = (self.height - img.height) // 2
         prepared.paste(img, (x, y))
         
+        # Apply gamma correction if requested (after resize, before quantization)
+        if self.gamma != 1.0:
+            prepared = _apply_gamma_correction(prepared, self.gamma)
+            logger.debug(f"Applied gamma correction: {self.gamma}")
+        
         # Quantize to 4-bit for better display quality
         # Try Floyd-Steinberg dithering, fall back to default if not available
         try:
@@ -310,9 +354,10 @@ class IT8951Display:
 class SimulatedDisplay:
     """Simulated display for development without hardware."""
     
-    def __init__(self, width=1448, height=1072):
+    def __init__(self, width=1448, height=1072, gamma=1.0):
         self.width = width
         self.height = height
+        self.gamma = gamma
         self.frame_buf = Image.new('L', (width, height), 0xFF)
         self.output_dir = Path("/tmp/picker_display")
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -339,6 +384,11 @@ class SimulatedDisplay:
         y = (self.height - img.height) // 2
         prepared.paste(img, (x, y))
         
+        # Apply gamma correction if requested
+        if self.gamma != 1.0:
+            prepared = _apply_gamma_correction(prepared, self.gamma)
+            logger.debug(f"Applied gamma correction: {self.gamma}")
+        
         self.frame_buf = prepared
         self._save_frame(f"display_{mode}")
         logger.info(f"Simulated: Display image with mode {mode}")
@@ -356,7 +406,7 @@ class SimulatedDisplay:
         logger.info("Simulated: Display closed")
 
 
-def create_display(spi_device=0, vcom=-2.06, width=1448, height=1072, force_simulation=False):
+def create_display(spi_device=0, vcom=-2.06, width=1448, height=1072, gamma=1.0, force_simulation=False):
     """Create a display instance - real hardware or simulation.
     
     Args:
@@ -364,6 +414,7 @@ def create_display(spi_device=0, vcom=-2.06, width=1448, height=1072, force_simu
         vcom: VCOM voltage
         width: Display width
         height: Display height
+        gamma: Gamma correction factor (1.0=no change, >1.0=brighten midtones)
         force_simulation: Force simulation mode even if hardware is available
     
     Returns:
@@ -371,7 +422,7 @@ def create_display(spi_device=0, vcom=-2.06, width=1448, height=1072, force_simu
     """
     if force_simulation or not SPI_AVAILABLE:
         logger.info("Creating simulated display")
-        return SimulatedDisplay(width, height)
+        return SimulatedDisplay(width, height, gamma=gamma)
     else:
         logger.info(f"Creating hardware display on SPI device {spi_device}")
-        return IT8951Display(spi_device=spi_device, vcom=vcom, width=width, height=height)
+        return IT8951Display(spi_device=spi_device, vcom=vcom, width=width, height=height, gamma=gamma)
