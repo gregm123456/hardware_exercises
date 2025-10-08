@@ -320,14 +320,35 @@ class PickerCore:
                 # an intermediate blank overlay which causes a visual bar.
                 logger.debug("Overlay timeout - returning to main screen (per-knob)")
                 try:
-                    # show_main composes and blits the main screen (uses high-quality mode)
-                    self.show_main()
+                    # If a late knob change arrived for this same channel while we
+                    # were waiting for the timeout, prefer processing that update
+                    # instead of immediately returning to the main screen. This
+                    # avoids the UX where a user moves the knob just before the
+                    # timeout and then must wait for another timeout cycle.
+                    pending = self.pending_updates.get(ch_now)
+                    if pending:
+                        pos_pending, ts_pending = pending
+                        # If the pending update is newer than the last activity
+                        # (i.e. arrived during the idle window), process it now.
+                        if ts_pending > last:
+                            logger.debug(f"Late pending update detected for CH{ch_now} (pos={pos_pending}) - processing instead of clearing")
+                            # Process pending update (this enqueues overlay update)
+                            self._process_knob_update(ch_now, pos_pending, time.time())
+                        else:
+                            # show_main composes and blits the main screen (uses high-quality mode)
+                            self.show_main()
+                            self.overlay_visible = False
+                            self.current_knob = None
+                    else:
+                        # No pending update: proceed to show main screen
+                        self.show_main()
+                        self.overlay_visible = False
+                        self.current_knob = None
                 except Exception:
                     # Fallback: if composing main fails, clear minimally
                     logger.exception("show_main failed during overlay timeout; falling back to clear")
                     img = compose_overlay("", [""] * 12, 0, full_screen=self.effective_display_size)
                     blit(img, "clear_overlay", rotate=self.rotate, mode='FAST')
-                finally:
                     self.overlay_visible = False
                     self.current_knob = None
 
