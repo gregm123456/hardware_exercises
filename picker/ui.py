@@ -235,8 +235,15 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
     except Exception:
         item_font = ImageFont.load_default()
 
-    # Collect selected non-empty values in standard knob order
-    knob_order = [0, 1, 2, 4, 5, 6]
+    # Collect selected non-empty values in physical knob order (top->bottom)
+    # Physical layout mapping (requested):
+    #  - upper right: CH4
+    #  - top left:   CH0
+    #  - mid right:  CH5
+    #  - mid left:   CH1
+    #  - bottom right: CH6
+    #  - bottom left:  CH2
+    knob_order = [4, 0, 5, 1, 6, 2]
     entries = []
     for ch in knob_order:
         key = f"CH{ch}"
