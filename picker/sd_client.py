@@ -16,6 +16,38 @@ def _timestamp():
     return datetime.fromtimestamp(time.time()).strftime("%Y%m%d-%H%M%S")
 
 
+def _apply_gamma(img: Image.Image, gamma: float) -> Image.Image:
+    """Apply gamma correction to brighten midtones while preserving full dynamic range.
+    
+    Args:
+        img: PIL Image in RGB or L mode
+        gamma: Gamma value (>1.0 brightens, <1.0 darkens, 1.0 = no change)
+    
+    Returns:
+        Gamma-corrected PIL Image in the same mode as input
+    """
+    if gamma == 1.0:
+        return img
+    
+    # Build a lookup table mapping input values 0-255 to output values 0-255
+    # Formula: output = 255 * (input/255)^(1/gamma)
+    inv_gamma = 1.0 / gamma
+    lut = [int(255 * ((i / 255.0) ** inv_gamma)) for i in range(256)]
+    
+    # Apply the lookup table to the image
+    # For RGB images, apply to all channels
+    if img.mode == 'RGB':
+        return img.point(lambda x: lut[x])
+    elif img.mode == 'L':
+        return img.point(lut)
+    else:
+        # For other modes, convert to RGB, apply gamma, convert back
+        orig_mode = img.mode
+        img_rgb = img.convert('RGB')
+        img_corrected = img_rgb.point(lambda x: lut[x])
+        return img_corrected.convert(orig_mode)
+
+
 def _call_api(endpoint: str, payload: dict, base_url: Optional[str] = None) -> dict:
     url = (base_url or sd_config.SD_IMAGE_WEBUI_SERVER_URL).rstrip('/') + '/' + endpoint.lstrip('/')
     data = json.dumps(payload).encode('utf-8')
@@ -67,6 +99,16 @@ def generate_image(prompt: str, output_path: Optional[str] = None, overrides: di
             img = img.resize((target_w, target_h), Image.LANCZOS)
     except Exception:
         # ignore resizing errors and save original
+        pass
+
+    # Apply gamma correction for e-paper display brightness
+    # This brightens midtones while preserving full dynamic range
+    try:
+        gamma = overrides.get('gamma', sd_config.EPAPER_GAMMA)
+        if gamma != 1.0:
+            img = _apply_gamma(img, gamma)
+    except Exception:
+        # ignore gamma adjustment errors and save original
         pass
 
     # Save as PNG (atomic write)
