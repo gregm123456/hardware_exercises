@@ -19,12 +19,14 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 _display = None
 
 
-def init(spi_device=0, force_simulation=False, rotate: str = None):
+def init(spi_device=0, force_simulation=False, rotate: str = None, gamma=1.0):
     """Initialize display adapter.
     
     Args:
         spi_device: SPI device number (0 for CE0, 1 for CE1)
         force_simulation: Force simulation mode for testing
+        rotate: Rotation setting (passed for compatibility, not used in init)
+        gamma: Gamma correction factor (1.0=no change, >1.0=brighten midtones)
     
     Returns:
         True if initialization successful
@@ -44,10 +46,11 @@ def init(spi_device=0, force_simulation=False, rotate: str = None):
         _display = create_display(
             spi_device=spi_device,
             vcom=-2.06,
+            gamma=gamma,  # Apply gamma correction
             force_simulation=force_simulation,
             prefer_enhanced=True  # Try to use IT8951 package for best results
         )
-        logger.info(f"Display initialized (SPI device {spi_device})")
+        logger.info(f"Display initialized (SPI device {spi_device}, gamma={gamma})")
         return True
     except Exception as e:
         logger.error(f"Display initialization failed: {e}")
@@ -55,13 +58,13 @@ def init(spi_device=0, force_simulation=False, rotate: str = None):
         return False
 
 
-def reinit(spi_device=0, force_simulation=False, rotate: str = None):
+def reinit(spi_device=0, force_simulation=False, rotate: str = None, gamma=1.0):
     """Convenience wrapper to reinitialize the display from runtime.
 
     This will attempt to close any existing display and create a fresh one.
     Returns True on success, False otherwise.
     """
-    return init(spi_device=spi_device, force_simulation=force_simulation, rotate=rotate)
+    return init(spi_device=spi_device, force_simulation=force_simulation, rotate=rotate, gamma=gamma)
 
 
 def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None, mode: str = 'auto') -> Path:

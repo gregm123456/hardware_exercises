@@ -43,6 +43,8 @@ def main(argv=None):
                    help="Run the interactive calibrator before starting the picker (passes through settle-confirm)")
     p.add_argument("--calibrate-settle-confirm", type=int, default=None,
                    help="When running the calibrator via --run-calibrator, pass this as --settle-confirm to the calibrator. If omitted the calibrator default is used.")
+    p.add_argument("--gamma", type=float, default=1.0,
+                   help="Gamma correction factor for image brightness (1.0=no change, 1.5-2.2=brighten for e-paper, default=1.0)")
     args = p.parse_args(argv)
     
     if args.verbose:
@@ -118,7 +120,8 @@ def main(argv=None):
             display_size=(args.display_w, args.display_h),
             spi_device=args.display_spi_device,
             force_simulation=args.force_simulation,
-            rotate=(None if args.rotate == 'none' else args.rotate)
+            rotate=(None if args.rotate == 'none' else args.rotate),
+            gamma=args.gamma
         )
         logger.info("Picker core initialized")
     except Exception as e:

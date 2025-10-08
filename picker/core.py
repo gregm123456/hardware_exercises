@@ -20,10 +20,11 @@ logger = logging.getLogger(__name__)
 
 
 class PickerCore:
-    def __init__(self, hw: HW, texts: Dict = None, display_size: Tuple[int, int] = (1024, 600), spi_device=0, force_simulation=False, rotate: str = 'CW'):
+    def __init__(self, hw: HW, texts: Dict = None, display_size: Tuple[int, int] = (1024, 600), spi_device=0, force_simulation=False, rotate: str = 'CW', gamma: float = 1.0):
         self.hw = hw
         self.texts = texts or load_texts()
         self.display_size = display_size
+        self.gamma = gamma
         # If rotation will be applied, compose UI using the rotated dimensions
         if rotate in ('CW', 'CCW'):
             # swap width/height so composition matches final orientation
@@ -68,9 +69,9 @@ class PickerCore:
         self.startup_grace_period = 1.0  # seconds (reduced for testing)
 
         # Initialize display with proper SPI device
-        logger.info(f"Initializing display on SPI device {spi_device} (rotate={rotate})")
+        logger.info(f"Initializing display on SPI device {spi_device} (rotate={rotate}, gamma={gamma})")
         self.rotate = rotate
-        display_success = display_init(spi_device=spi_device, force_simulation=force_simulation, rotate=rotate)
+        display_success = display_init(spi_device=spi_device, force_simulation=force_simulation, rotate=rotate, gamma=gamma)
         if not display_success:
             logger.warning("Display initialization failed - continuing in simulation mode")
         else:
@@ -189,7 +190,7 @@ class PickerCore:
         try:
             logger.info("Attempting background display reinitialization")
             from picker.drivers import display_fast
-            ok = display_fast.reinit(spi_device=self._spi_device, force_simulation=self._force_simulation, rotate=self.rotate)
+            ok = display_fast.reinit(spi_device=self._spi_device, force_simulation=self._force_simulation, rotate=self.rotate, gamma=self.gamma)
             if ok:
                 logger.info("Display reinit successful - clearing disabled flag and refreshing executor")
                 self._display_disabled_until = 0.0
