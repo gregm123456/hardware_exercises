@@ -282,23 +282,18 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                     else:
                         title_h = base_font_size
                     # small gap between title and value (a wee bit)
-                    gap = 4
+                    gap = 5
                     draw.text((side_x, y + title_h + gap), sel, font=value_font, fill=0)
                     if hasattr(value_font, 'getsize'):
                         val_h = value_font.getsize(sel)[1]
                     else:
                         val_h = base_font_size
-                    # underline the title (draw a thin line just below the title)
+                    # append a colon to visually separate title from value instead
+                    # of underlining which can intersect glyphs on some fonts.
                     try:
-                        if hasattr(draw, 'textbbox'):
-                            tb = draw.textbbox((side_x, y), title, font=title_font)
-                            title_w = tb[2] - tb[0]
-                        else:
-                            title_w = title_font.getsize(title)[0]
-                        line_y = y + title_h + 1
-                        draw.line((side_x, line_y, side_x + title_w, line_y), fill=0, width=1)
+                        title = title.rstrip() + ':'
                     except Exception:
-                        pass
+                        title = title + ':'
             except Exception:
                 draw.text((side_x, y), title, fill=0)
                 draw.text((side_x, y + base_font_size + 2), sel, fill=0)
@@ -339,7 +334,7 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                 val_h = base_font_size
 
             # small gap between title and value
-            gap = 4
+            gap = 5
             pair_h = title_h + gap + val_h
             target_y = int(round(area_y0 + i * step))
             top_y = target_y - pair_h // 2
@@ -359,13 +354,13 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                 top_y = area_y1 - pair_h
 
             try:
-                draw.text((x, top_y), title, font=title_font, fill=0)
-                draw.text((x, top_y + title_h + gap), sel, font=value_font, fill=0)
-                # underline the title
+                # append colon to title and draw stacked
                 try:
-                    draw.line((x, top_y + title_h + 1, x + title_w, top_y + title_h + 1), fill=0, width=1)
+                    t = title.rstrip() + ':'
                 except Exception:
-                    pass
+                    t = title + ':'
+                draw.text((x, top_y), t, font=title_font, fill=0)
+                draw.text((x, top_y + title_h + gap), sel, font=value_font, fill=0)
             except Exception:
                 draw.text((x, top_y), title, fill=0)
                 draw.text((x, top_y + title_h + gap), sel, fill=0)
