@@ -477,11 +477,22 @@ class PickerCore:
                         fut = self._blit_executor.submit(blit, img, "reset_full_refresh", self.rotate, 'full')
                         fut.result(timeout=6.0)
                         logger.info("RESET full refresh completed")
+                        # Record that the last shown main positions now match the
+                        # positions we used to compose the image so the main loop
+                        # won't perform an immediate redundant redraw.
+                        try:
+                            self.last_main_positions = dict(main_positions)
+                        except Exception:
+                            self.last_main_positions = main_positions
                     except concurrent.futures.TimeoutError:
                         logger.error("RESET full refresh blit timed out")
                         # Try driver-level full_update as a fallback
                         try:
-                            display_fast.full_update()
+                            if display_fast.full_update():
+                                try:
+                                    self.last_main_positions = dict(main_positions)
+                                except Exception:
+                                    self.last_main_positions = main_positions
                         except Exception:
                             logger.exception("Driver-level full_update also failed during RESET")
                     except Exception:
