@@ -5,6 +5,7 @@ invokes the UI composer, and routes output to the display adapter. It supports a
 simulation mode when the HW instance is backed by `SimulatedMCP3008`.
 """
 import time
+import concurrent.futures
 import threading
 import logging
 from typing import Dict, Tuple
@@ -53,6 +54,13 @@ class PickerCore:
         self._display_queue_lock = threading.Lock()
         self._display_thread = threading.Thread(target=self._display_worker, name="picker-display-worker", daemon=True)
         self._display_thread_stop = False
+        # Executor for per-blit worker so we can apply a timeout
+        self._blit_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        # When a blit times out, disable further attempts until this timestamp
+        self._display_disabled_until = 0.0
+        # Save init params to allow re-init attempts later if desired
+        self._spi_device = spi_device
+        self._force_simulation = force_simulation
 
         # Add startup protection - ignore changes for first few seconds
         self.startup_time = time.time()
@@ -125,20 +133,37 @@ class PickerCore:
                 job = None
 
             if job:
+                # Skip attempts while display is marked disabled due to recent timeout
+                if time.time() < self._display_disabled_until:
+                    _time.sleep(0.02)
+                    continue
+
                 try:
                     tag, img, rotate, mode = job
                     # mark busy while performing blit
                     self.display_busy = True
-                    blit(img, tag, rotate=rotate, mode=mode)
-                except Exception:
-                    logger.exception("Display worker failed to blit job")
-                finally:
-                    self.display_busy = False
-                    # record last display update time
+                    # Submit blit to executor and wait with timeout
+                    future = self._blit_executor.submit(blit, img, tag, rotate, mode)
                     try:
-                        self.last_display_update = time.time()
+                        # Timeout controls how long we wait for hardware response
+                        future.result(timeout=2.0)
+                    except concurrent.futures.TimeoutError:
+                        logger.error("Display worker: blit timed out; marking display disabled temporarily")
+                        # Mark display disabled for a cooldown period to avoid repeated blocking
+                        self._display_disabled_until = time.time() + 5.0
                     except Exception:
-                        pass
+                        logger.exception("Display worker: blit raised")
+                    finally:
+                        # Do not attempt to cancel running thread (can't kill threads),
+                        # but clear busy flag so UI is responsive. The hung blit thread
+                        # will eventually finish or be left in the background.
+                        self.display_busy = False
+                        try:
+                            self.last_display_update = time.time()
+                        except Exception:
+                            pass
+                except Exception:
+                    logger.exception("Display worker failed to schedule blit job")
             else:
                 _time.sleep(0.005)
 
