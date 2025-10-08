@@ -231,17 +231,17 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
     font_path = _choose_font_path()
     try:
         if font_path:
-            # Try to load a bold and a regular variant from same path (many
-            # systems provide a bold file in FONT_PATHS list). If the same path
-            # is a bold face, use it for titles and load a default for values.
+            # Title font at base size; value font slightly smaller for visual
+            # hierarchy.
             title_font = ImageFont.truetype(font_path, base_font_size)
-            # Attempt to load a non-bold variant by replacing 'Bold' in the
-            # filename; fall back to the same font if not available.
+            val_size = max(10, int(base_font_size * 0.9))
+            # Attempt to load a non-bold variant at the smaller size; fall
+            # back to the same font if not available.
             try:
                 regular_path = font_path.replace('Bold', '')
-                value_font = ImageFont.truetype(regular_path, base_font_size)
+                value_font = ImageFont.truetype(regular_path, val_size)
             except Exception:
-                value_font = ImageFont.truetype(font_path, base_font_size)
+                value_font = ImageFont.truetype(font_path, val_size)
         else:
             raise Exception("no font")
     except Exception:
@@ -288,16 +288,16 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                         val_h = value_font.getsize(sel)[1]
                     else:
                         val_h = base_font_size
-                    # wrap title with colons (prefix and suffix) to separate it from
-                    # the value. Strip any existing colons/spaces to avoid duplicates.
+                    # append trailing colon only (no leading colon). Strip any
+                    # existing colons/spaces to avoid duplicates.
                     try:
                         clean = title.strip().strip(':')
-                        title = f":{clean}:"
+                        title = f"{clean}:"
                     except Exception:
                         try:
-                            title = f":{title.strip()}:"
+                            title = f"{title.strip()}:"
                         except Exception:
-                            title = ':' + title + ':'
+                            title = title + ':'
             except Exception:
                 draw.text((side_x, y), title, fill=0)
                 draw.text((side_x, y + base_font_size + 2), sel, fill=0)
@@ -311,25 +311,11 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
         step = area_h / max(1, (n - 1))
         left_x = 12
         # Add a slightly larger right padding and an extra safety offset to
-        # avoid clipping the last glyph when right-justifying text. Some
-        # font metrics differ slightly between environments so a small
-        # conservative offset helps prevent truncation.
-        right_x_pad = 18
+        # avoid clipping the last glyph when right-justifying text. Increase
+        # the right-side padding a bit to prevent overflow on narrow screens.
+        right_x_pad = 26
         extra_safety = 6
-    # Precompute column centers so pairs can be horizontally centered
-    # within their respective left/right halves.
-    half = layout_w // 2
-    left_half_x0 = left_x
-    left_half_x1 = max(left_x, half - extra_safety)
-    available_left = max(0, left_half_x1 - left_half_x0)
-    left_center = left_half_x0 + available_left // 2
-
-    right_half_x0 = min(half + extra_safety, half)
-    right_half_x1 = max(half, layout_w - right_x_pad)
-    available_right = max(0, right_half_x1 - right_half_x0)
-    right_center = right_half_x0 + available_right // 2
-
-    for i, (title, sel) in enumerate(entries):
+        for i, (title, sel) in enumerate(entries):
             # compute baseline y for this entry and adjust to draw the title
             # stacked above the value. We compute combined height and center the
             # pair on the target baseline.
@@ -356,24 +342,13 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
             target_y = int(round(area_y0 + i * step))
             top_y = target_y - pair_h // 2
 
-            # Even indices in knob_order are right-side entries. Center the
-            # pair within the left or right half so title and value are
-            # horizontally aligned on the same x.
+            # Even indices in knob_order are right-side entries -> right-justify
+            # compute max width between title and value to right-justify
             max_w = max(title_w, val_w)
             if i % 2 == 0:
-                # right column: center around right_center
-                x = int(right_center - max_w // 2)
+                x = max(left_x, layout_w - right_x_pad - max_w - extra_safety)
             else:
-                # left column: center around left_center
-                x = int(left_center - max_w // 2)
-
-            # clamp x to reasonable bounds to avoid clipping
-            min_x = left_x
-            max_x = max(left_x, layout_w - right_x_pad - max_w - extra_safety)
-            if x < min_x:
-                x = min_x
-            if x > max_x:
-                x = max_x
+                x = left_x
 
             # Clip y to visible area
             if top_y < area_y0:
@@ -382,15 +357,15 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                 top_y = area_y1 - pair_h
 
             try:
-                # append colon to title and draw stacked
+                # append trailing colon only (no leading colon) and draw
                 try:
                     clean = title.strip().strip(':')
-                    t = f":{clean}:"
+                    t = f"{clean}:"
                 except Exception:
                     try:
-                        t = f":{title.strip()}:"
+                        t = f"{title.strip()}:"
                     except Exception:
-                        t = ':' + title + ':'
+                        t = title + ':'
                 draw.text((x, top_y), t, font=title_font, fill=0)
                 draw.text((x, top_y + title_h + gap), sel, font=value_font, fill=0)
             except Exception:
