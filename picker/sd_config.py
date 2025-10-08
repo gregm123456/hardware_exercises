@@ -8,9 +8,10 @@ from typing import List
 from pathlib import Path
 
 # Prompt framing
-IMAGE_PROMPT_PREFIX = "(((pencil drawing sketch))), face portrait, <lora:suxierenV1:.5>, criminal mug shot, "
+# IMAGE_PROMPT_PREFIX = "(((pencil drawing sketch))), face portrait, <lora:suxierenV1:.5>, criminal mug shot, "
+IMAGE_PROMPT_PREFIX = "photograph, face portrait, "
 IMAGE_PROMPT_SUFFIX = ""
-NEGATIVE_IMAGE_PROMPT = ", photograph, bad anatomy, watermark, text"
+NEGATIVE_IMAGE_PROMPT = ", bad anatomy, watermark, text"
 
 # SD Web UI server URL (no trailing slash)
 SD_IMAGE_WEBUI_SERVER_URL = "http://192.168.4.108:7860"
