@@ -225,15 +225,27 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
 
     # Draw selected knob values below the image
     short_dim = min(w, h)
-    base_font_size = max(12, int(short_dim * DEFAULT_BASE_FONT_RATIO))
+    # Reduce base font size slightly to allow two-line entries in tight spaces
+    base_font_size = max(10, int(short_dim * (DEFAULT_BASE_FONT_RATIO * 0.9)))
     font_path = _choose_font_path()
     try:
         if font_path:
-            item_font = ImageFont.truetype(font_path, base_font_size)
+            # Try to load a bold and a regular variant from same path (many
+            # systems provide a bold file in FONT_PATHS list). If the same path
+            # is a bold face, use it for titles and load a default for values.
+            title_font = ImageFont.truetype(font_path, base_font_size)
+            # Attempt to load a non-bold variant by replacing 'Bold' in the
+            # filename; fall back to the same font if not available.
+            try:
+                regular_path = font_path.replace('Bold', '')
+                value_font = ImageFont.truetype(regular_path, base_font_size)
+            except Exception:
+                value_font = ImageFont.truetype(font_path, base_font_size)
         else:
             raise Exception("no font")
     except Exception:
-        item_font = ImageFont.load_default()
+        title_font = ImageFont.load_default()
+        value_font = ImageFont.load_default()
 
     # Fixed six entries in the interleaved physical knob order (top->bottom).
     # Triplets: right-side knobs are CH0,CH1,CH2 (even indices in the list)
@@ -257,21 +269,28 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
     area_y0 = py + placeholder_img.height + margin
     area_y1 = layout_h - pad
     if area_y1 <= area_y0:
-        # fallback simple stacking
+        # fallback simple stacking (title on one line, value below)
         side_x = 12
         y = area_y0
         for title, sel in entries:
-            text = f"{title}: {sel}"
             try:
-                draw.text((side_x, y), text, font=item_font, fill=0)
-                if hasattr(item_font, 'getsize'):
-                    line_h = item_font.getsize(text)[1]
+                # title bold (or heavy), value regular on next line
+                draw.text((side_x, y), title, font=title_font, fill=0)
+                if hasattr(title_font, 'getsize'):
+                    title_h = title_font.getsize(title)[1]
                 else:
-                    line_h = base_font_size
+                    title_h = base_font_size
+                draw.text((side_x, y + title_h + 2), sel, font=value_font, fill=0)
+                if hasattr(value_font, 'getsize'):
+                    val_h = value_font.getsize(sel)[1]
+                else:
+                    val_h = base_font_size
             except Exception:
-                draw.text((side_x, y), text, fill=0)
-                line_h = base_font_size
-            y += max(line_h + 4, base_font_size + 4)
+                draw.text((side_x, y), title, fill=0)
+                draw.text((side_x, y + base_font_size + 2), sel, fill=0)
+                title_h = base_font_size
+                val_h = base_font_size
+            y += max(title_h + val_h + 6, base_font_size * 2 + 6)
     else:
         area_h = area_y1 - area_y0
         # If we want endpoints included, divide by (n-1) so first is at area_y0 and
@@ -285,41 +304,50 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
         right_x_pad = 18
         extra_safety = 6
         for i, (title, sel) in enumerate(entries):
-            # compute baseline y for this entry and adjust to draw the text such
-            # that it appears centered on that baseline (approx)
-            target_y = int(round(area_y0 + i * step))
-            text = f"{title}: {sel}"
+            # compute baseline y for this entry and adjust to draw the title
+            # stacked above the value. We compute combined height and center the
+            # pair on the target baseline.
             try:
                 if hasattr(draw, 'textbbox'):
-                    bb = draw.textbbox((0, 0), text, font=item_font)
-                    tw = bb[2] - bb[0]
-                    th = bb[3] - bb[1]
-                elif hasattr(item_font, 'getsize'):
-                    tw, th = item_font.getsize(text)
+                    tb = draw.textbbox((0, 0), title, font=title_font)
+                    title_w = tb[2] - tb[0]
+                    title_h = tb[3] - tb[1]
+                    vb = draw.textbbox((0, 0), sel, font=value_font)
+                    val_w = vb[2] - vb[0]
+                    val_h = vb[3] - vb[1]
                 else:
-                    tw = len(text) * (base_font_size // 2)
-                    th = base_font_size
+                    title_w, title_h = title_font.getsize(title)
+                    val_w, val_h = value_font.getsize(sel)
             except Exception:
-                tw = len(text) * (base_font_size // 2)
-                th = base_font_size
-            text_y = target_y - th // 2
+                title_w = len(title) * (base_font_size // 2)
+                title_h = base_font_size
+                val_w = len(sel) * (base_font_size // 2)
+                val_h = base_font_size
+
+            pair_h = title_h + 2 + val_h
+            target_y = int(round(area_y0 + i * step))
+            top_y = target_y - pair_h // 2
 
             # Even indices in knob_order are right-side entries -> right-justify
+            # compute max width between title and value to right-justify
+            max_w = max(title_w, val_w)
             if i % 2 == 0:
-                x = max(left_x, layout_w - right_x_pad - tw - extra_safety)
+                x = max(left_x, layout_w - right_x_pad - max_w - extra_safety)
             else:
                 x = left_x
 
             # Clip y to visible area
-            if text_y < area_y0:
-                text_y = area_y0
-            if text_y + th > area_y1:
-                text_y = area_y1 - th
+            if top_y < area_y0:
+                top_y = area_y0
+            if top_y + pair_h > area_y1:
+                top_y = area_y1 - pair_h
 
             try:
-                draw.text((x, text_y), text, font=item_font, fill=0)
+                draw.text((x, top_y), title, font=title_font, fill=0)
+                draw.text((x, top_y + title_h + 2), sel, font=value_font, fill=0)
             except Exception:
-                draw.text((x, text_y), text, fill=0)
+                draw.text((x, top_y), title, fill=0)
+                draw.text((x, top_y + title_h + 2), sel, fill=0)
 
     # Apply requested output rotation (convenience for saving a portrait-oriented
     # image when the display is mounted rotated). This does not change how
