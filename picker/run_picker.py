@@ -53,28 +53,6 @@ def main(argv=None):
     
     texts = load_texts(args.config) if args.config else load_texts()
 
-    # Show a quick startup message as early as reasonably possible so the
-    # user sees feedback while heavy initialization (calibrator/HW/core)
-    # happens. This is intentionally shown before running the calibrator
-    # or initializing the hardware/core.
-    try:
-        logger.info("Displaying early startup message")
-        # Try to clear any residual display first (best-effort) so the
-        # Starting... image is shown cleanly and then persists until
-        # replaced by the main screen.
-        try:
-            clear_display()
-        except Exception:
-            # Not fatal; we'll still attempt to blit the startup image
-            logger.debug("Early clear_display failed; continuing to blit startup image")
-
-        img = compose_message("Starting...", full_screen=(args.display_w, args.display_h))
-        blit(img, "starting", rotate=(None if args.rotate == 'none' else args.rotate))
-        # Short pause so the message is visible while we continue
-        time.sleep(1.0)
-    except Exception as e:
-        logger.debug(f"Early startup display failed: {e}")
-
     # If user requested to run the calibrator through run_picker, invoke it
     # here and optionally forward the settle-confirm value. Running the
     # calibrator is intentionally done before initializing the main HW/core so
@@ -147,21 +125,30 @@ def main(argv=None):
         logger.error(f"Failed to initialize picker core: {e}")
         return 1
 
-    # Note: we already attempted an early clear + showed the "Starting..."
-    # screen above. Do not clear the display here or it will erase the
-    # startup message before `core.show_main()` replaces it.
-
-    # Ask core to show main placeholder (best-effort). We don't re-show the
-    # "Starting..." screen here since it was already displayed earlier.
+    # Clear display first to remove any residual images
     try:
+        logger.info("Clearing display at startup")
+        from picker.drivers.display_fast import clear_display
+        clear_display()
+        time.sleep(0.5)  # Give display time to clear
+    except Exception as e:
+        logger.warning(f"Initial display clear failed: {e}")
+
+    # Show a startup message for 2 seconds, then clear the screen
+    try:
+        logger.info("Displaying startup message")
+        img = compose_message("Starting...", full_screen=(args.display_w, args.display_h))
+        blit(img, "starting", rotate=(None if args.rotate == 'none' else args.rotate))
+        time.sleep(2.0)
+        # Directly show the main placeholder screen without an intermediate clear
         try:
             core.show_main()
         except Exception as e:
             logger.debug(f"show_main failed: {e}")
         logger.info("Ready - entering main loop")
-    except Exception:
-        # no-op: ensure any display/PIL failures don't stop the main loop
-        pass
+    except Exception as e:
+        # If display or PIL fails, continue silently to the main loop
+        logger.warning(f"Startup display failed: {e} - continuing anyway")
 
     def handle_sigint(sig, frame):
         logger.info('Stopping picker application...')
