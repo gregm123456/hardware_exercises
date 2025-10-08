@@ -116,6 +116,12 @@ class PickerCore:
         except Exception:
             logger.exception("Failed to start display worker thread; display will be used synchronously")
 
+        # Keep the last image-generation source string that corresponds to
+        # the currently shown main image. This ensures the top-right annotation
+        # text only updates when a new image is generated and associated with
+        # the main image. It should contain the exact prompt/CSV used.
+        self.last_image_source = None
+
     def _display_worker(self):
         """Worker thread that processes the latest display job and drops older ones.
 
@@ -316,9 +322,18 @@ class PickerCore:
                         'n_iter': sd_config.SD_N_ITER,
                         'batch_size': sd_config.SD_BATCH_SIZE,
                     })
-                    # After generation, request immediate main screen redraw
+                    # After generation, set the last_image_source to the prompt
+                    # (or a concise knob CSV) so the UI annotation will match the
+                    # image that was generated. Then request immediate main
+                    # screen redraw using that fixed source text.
                     try:
-                        img = compose_main_screen(self.texts, self.last_main_positions, full_screen=self.effective_display_size)
+                        # store the exact CSV (or prompt) that was used
+                        try:
+                            # prefer a short knob csv string
+                            self.last_image_source = knob_csv
+                        except Exception:
+                            self.last_image_source = prompt
+                        img = compose_main_screen(self.texts, self.last_main_positions, full_screen=self.effective_display_size, image_source_text=self.last_image_source)
                         blit(img, "main", rotate=self.rotate, mode='auto')
                     except Exception:
                         logger.exception("Failed to blit generated main screen")
@@ -349,7 +364,7 @@ class PickerCore:
                 values = knob.get('values', [""] * 12) if knob else [""] * 12
                 display_pos = max(0, min(len(values) - 1, (len(values) - 1) - pos))
                 main_positions[ch] = display_pos
-            img = compose_main_screen(self.texts, main_positions, full_screen=self.effective_display_size)
+            img = compose_main_screen(self.texts, main_positions, full_screen=self.effective_display_size, image_source_text=self.last_image_source)
             # Use auto mode for main screen to get proper grayscale rendering for images
             # Enqueue main screen as a display job (don't block)
             try:
@@ -426,7 +441,7 @@ class PickerCore:
                     # If a more complete main screen composer exists, prefer it
                     try:
                         from picker.ui import compose_main_screen
-                        main_img = compose_main_screen(self.texts, main_positions, full_screen=self.effective_display_size)
+                        main_img = compose_main_screen(self.texts, main_positions, full_screen=self.effective_display_size, image_source_text=self.last_image_source)
                         img = main_img
                     except Exception:
                         pass

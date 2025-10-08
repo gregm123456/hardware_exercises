@@ -125,7 +125,7 @@ def compose_message(message: str, full_screen: Tuple[int, int] = (DISPLAY_W, DIS
     return img
 
 
-def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, int] = (DISPLAY_W, DISPLAY_H), placeholder_path: str = None, rotate_output: str = None) -> Image.Image:
+def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, int] = (DISPLAY_W, DISPLAY_H), placeholder_path: str = None, rotate_output: str = None, image_source_text: str = None) -> Image.Image:
     """Compose the main idle screen.
 
     Layout: top-centred placeholder image (reserved 512x512 area where possible),
@@ -264,29 +264,17 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
         entries.append((title, sel))
 
     # --- New: Draw the image-generation source terms to the right of the
-    # reserved image area (top-aligned). These are the selected knob values
-    # used to generate the main image (channels: 0,4,1,5,2,6). The text is a
-    # comma-space separated list with empty terms omitted. It will be wrapped
-    # on word boundaries to fit into the area to the right of the image,
-    # constrained to not overlap the image, not extend past the right edge,
-    # and not extend more than 512px down from the top of the portrait area.
+    # reserved image area (top-aligned). If `image_source_text` is provided
+    # it will be used directly; otherwise fall back to building the text from
+    # current `positions` (legacy behaviour). The displayed source text is
+    # intended to represent the prompt/terms that were used to generate the
+    # current image, so callers should pass the exact string used for
+    # generation when available.
     try:
-        # Build the comma-separated source terms in the same order used for
-        # generation in PickerCore.handle_go
-        source_knobs = [0, 4, 1, 5, 2, 6]
-        src_terms = []
-        for ch in source_knobs:
-            key = f"CH{ch}"
-            knob = texts.get(key)
-            values = knob.get('values', [""] * 12) if knob else [""] * 12
-            pos = positions.get(ch, 0)
-            term = values[pos] if pos < len(values) else ""
-            if term:
-                # sanitize commas inside terms to avoid confusing separation
-                term = term.replace(',', ' ').strip()
-                if term:
-                    src_terms.append(term)
-        src_text = ', '.join(src_terms)
+        # Determine source text to render: only render when an explicit
+        # `image_source_text` is provided; do NOT fall back to current knob
+        # positions (these are arbitrary relative to an existing image).
+        src_text = image_source_text if image_source_text is not None else ''
 
         # If nothing to draw, skip this block
         if src_text:
@@ -300,7 +288,6 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
             area_y1 = area_y0 + area_h
 
             # Prepare wrapping using the value_font (smaller regular font)
-            # Fallback to title_font if value_font is not usable
             wrap_font = value_font if 'value_font' in locals() else title_font
             # compute line height
             try:
@@ -331,7 +318,6 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                     if cur:
                         lines.append(cur)
                     # if single word is longer than area, force-break it
-                    # by chopping (rare) to avoid infinite loop
                     try:
                         if hasattr(draw, 'textbbox'):
                             w_single = draw.textbbox((0, 0), wpart, font=wrap_font)[2]
@@ -370,10 +356,8 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                 lines = lines[:max_lines]
                 if lines:
                     last = lines[-1]
-                    # trim last line to leave room for ellipsis if necessary
                     ell = '...'
                     try:
-                        # shrink last until it fits with ellipsis
                         while True:
                             test = last + ell
                             tw = draw.textbbox((0, 0), test, font=wrap_font)[2] if hasattr(draw, 'textbbox') else wrap_font.getsize(test)[0]
