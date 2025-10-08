@@ -482,7 +482,7 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                 top_y = area_y1 - pair_h
 
             try:
-                # append trailing colon only (no leading colon)
+                # append trailing colon only (no leading colon) and draw title
                 try:
                     clean = title.strip().strip(':')
                     t = f"{clean}:"
@@ -491,49 +491,63 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                         t = f"{title.strip()}:"
                     except Exception:
                         t = title + ':'
+                draw.text((x, top_y), t, font=title_font, fill=0)
 
-                # Determine if this value should be inverted. Behavior:
-                # - If image_source_text is None or empty -> invert all values
-                # - Otherwise, invert if the current selected value `sel` does not
-                #   appear verbatim in the image_source_text. Comparison is simple
-                #   substring check; callers can supply exact source text.
+                # Determine whether this value should be inverted.
+                # If image_source_text is None or empty, invert all values.
                 invert_value = False
                 try:
                     if not image_source_text:
                         invert_value = True
                     else:
-                        # simple containment check; treat None safely
-                        invert_value = (sel and (sel not in image_source_text))
+                        # Simple substring match: if sel is present in image_source_text
+                        # consider it matching; otherwise treat as different.
+                        # Use exact token matching to avoid partial-word false positives
+                        # by splitting on whitespace and punctuation.
+                        img_src = str(image_source_text)
+                        # normalize comparisons
+                        if sel and sel.strip():
+                            if sel in img_src:
+                                invert_value = False
+                            else:
+                                invert_value = True
+                        else:
+                            # empty selection -> treat as matching (no invert)
+                            invert_value = False
                 except Exception:
-                    invert_value = False
+                    invert_value = True
 
-                # Coordinates for the value text baseline
                 val_x = x
                 val_y = top_y + title_h + gap
 
-                # If invert requested, draw a slightly-padded black rectangle
-                # behind the value text and draw white text on top. Add a bit
-                # of vertical padding to avoid clipping descenders.
-                if invert_value and sel:
-                    pad_x = 6
-                    pad_y_top = 2
-                    pad_y_bottom = max(4, int(val_h * 0.25))
-                    rect_x0 = val_x - pad_x
-                    rect_y0 = val_y - pad_y_top
-                    rect_x1 = val_x + val_w + pad_x
-                    rect_y1 = val_y + val_h + pad_y_bottom
-                    # ensure rectangle within canvas
-                    rect_x0 = max(0, rect_x0)
-                    rect_y0 = max(0, rect_y0)
-                    rect_x1 = min(layout_w, rect_x1)
-                    rect_y1 = min(layout_h, rect_y1)
+                if invert_value:
+                    # compute text bbox for value to draw a padded black rect
+                    try:
+                        if hasattr(draw, 'textbbox'):
+                            vb = draw.textbbox((val_x, val_y), sel, font=value_font)
+                            v_w = vb[2] - vb[0]
+                            v_h = vb[3] - vb[1]
+                        else:
+                            v_w, v_h = value_font.getsize(sel)
+                    except Exception:
+                        v_w = len(sel) * (base_font_size // 2)
+                        v_h = base_font_size
+
+                    # padding to avoid clipping bottoms; provide a bit of side padding too
+                    pad_x = max(6, int(base_font_size * 0.3))
+                    pad_y = max(4, int(base_font_size * 0.2))
+
+                    rect_x0 = max(0, val_x - pad_x)
+                    rect_y0 = max(area_y0, val_y - pad_y)
+                    rect_x1 = min(layout_w, val_x + v_w + pad_x)
+                    rect_y1 = min(area_y1, val_y + v_h + pad_y)
+
+                    # draw black rectangle and white text on top
                     draw.rectangle((rect_x0, rect_y0, rect_x1, rect_y1), fill=0)
                     draw.text((val_x, val_y), sel, font=value_font, fill=255)
                 else:
-                    draw.text((x, top_y), t, font=title_font, fill=0)
                     draw.text((val_x, val_y), sel, font=value_font, fill=0)
             except Exception:
-                # fallback: draw without inversion or precise layout
                 draw.text((x, top_y), title, fill=0)
                 draw.text((x, top_y + title_h + gap), sel, fill=0)
 
