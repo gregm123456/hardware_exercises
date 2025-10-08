@@ -525,9 +525,15 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                     pad_x = max(6, int(base_font_size * 0.3))
                     pad_y = max(4, int(base_font_size * 0.2))
 
+                    # Ensure value baseline is pushed down enough so the inverted
+                    # block cannot overlap the title above. This moves the value
+                    # down by at least pad_y if needed.
                     try:
-                        # Prefer exact glyph bbox when available so the rect tightly
-                        # surrounds the drawn text without overlapping the title.
+                        val_y = max(val_y, top_y + title_h + pad_y + 1)
+                    except Exception:
+                        val_y = val_y
+
+                    try:
                         if hasattr(draw, 'textbbox'):
                             vb = draw.textbbox((val_x, val_y), sel, font=value_font)
                             rect_x0 = vb[0] - pad_x
@@ -535,14 +541,12 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                             rect_x1 = vb[2] + pad_x
                             rect_y1 = vb[3] + pad_y
                         else:
-                            # Fallback: estimate from text size anchored at val_x,val_y
                             v_w, v_h = value_font.getsize(sel)
                             rect_x0 = val_x - pad_x
                             rect_y0 = val_y - pad_y
                             rect_x1 = val_x + v_w + pad_x
                             rect_y1 = val_y + v_h + pad_y
                     except Exception:
-                        # worst-case fallback approximate box
                         v_w = len(sel) * (base_font_size // 2)
                         v_h = base_font_size
                         rect_x0 = val_x - pad_x
@@ -551,9 +555,8 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                         rect_y1 = val_y + v_h + pad_y
 
                     # Clamp rectangle to visible layout and ensure it does not
-                    # overlap the title above. The rectangle top must be at or
-                    # below the bottom of the title (top_y + title_h).
-                    min_top = top_y + title_h + 1
+                    # overlap the title above by forcing the top >= title bottom
+                    min_top = top_y + title_h + max(2, (gap // 2))
                     rect_x0 = max(0, int(rect_x0))
                     rect_y0 = max(area_y0, int(rect_y0), int(min_top))
                     rect_x1 = min(layout_w, int(rect_x1))
