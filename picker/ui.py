@@ -225,8 +225,9 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
 
     # Draw selected knob values below the image
     short_dim = min(w, h)
-    # Reduce base font size slightly to allow two-line entries in tight spaces
-    base_font_size = max(10, int(short_dim * (DEFAULT_BASE_FONT_RATIO * 0.9)))
+    # Use an intermediate font size between the previous larger default
+    # and the smaller size introduced earlier so text is more legible.
+    base_font_size = max(12, int(short_dim * (DEFAULT_BASE_FONT_RATIO * 0.97)))
     font_path = _choose_font_path()
     try:
         if font_path:
@@ -274,17 +275,30 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
         y = area_y0
         for title, sel in entries:
             try:
-                # title bold (or heavy), value regular on next line
-                draw.text((side_x, y), title, font=title_font, fill=0)
-                if hasattr(title_font, 'getsize'):
-                    title_h = title_font.getsize(title)[1]
-                else:
-                    title_h = base_font_size
-                draw.text((side_x, y + title_h + 2), sel, font=value_font, fill=0)
-                if hasattr(value_font, 'getsize'):
-                    val_h = value_font.getsize(sel)[1]
-                else:
-                    val_h = base_font_size
+                    # title bold (or heavy), value regular on next line
+                    draw.text((side_x, y), title, font=title_font, fill=0)
+                    if hasattr(title_font, 'getsize'):
+                        title_h = title_font.getsize(title)[1]
+                    else:
+                        title_h = base_font_size
+                    # small gap between title and value (a wee bit)
+                    gap = 4
+                    draw.text((side_x, y + title_h + gap), sel, font=value_font, fill=0)
+                    if hasattr(value_font, 'getsize'):
+                        val_h = value_font.getsize(sel)[1]
+                    else:
+                        val_h = base_font_size
+                    # underline the title (draw a thin line just below the title)
+                    try:
+                        if hasattr(draw, 'textbbox'):
+                            tb = draw.textbbox((side_x, y), title, font=title_font)
+                            title_w = tb[2] - tb[0]
+                        else:
+                            title_w = title_font.getsize(title)[0]
+                        line_y = y + title_h + 1
+                        draw.line((side_x, line_y, side_x + title_w, line_y), fill=0, width=1)
+                    except Exception:
+                        pass
             except Exception:
                 draw.text((side_x, y), title, fill=0)
                 draw.text((side_x, y + base_font_size + 2), sel, fill=0)
@@ -324,7 +338,9 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                 val_w = len(sel) * (base_font_size // 2)
                 val_h = base_font_size
 
-            pair_h = title_h + 2 + val_h
+            # small gap between title and value
+            gap = 4
+            pair_h = title_h + gap + val_h
             target_y = int(round(area_y0 + i * step))
             top_y = target_y - pair_h // 2
 
@@ -344,10 +360,15 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
 
             try:
                 draw.text((x, top_y), title, font=title_font, fill=0)
-                draw.text((x, top_y + title_h + 2), sel, font=value_font, fill=0)
+                draw.text((x, top_y + title_h + gap), sel, font=value_font, fill=0)
+                # underline the title
+                try:
+                    draw.line((x, top_y + title_h + 1, x + title_w, top_y + title_h + 1), fill=0, width=1)
+                except Exception:
+                    pass
             except Exception:
                 draw.text((x, top_y), title, fill=0)
-                draw.text((x, top_y + title_h + 2), sel, fill=0)
+                draw.text((x, top_y + title_h + gap), sel, fill=0)
 
     # Apply requested output rotation (convenience for saving a portrait-oriented
     # image when the display is mounted rotated). This does not change how
