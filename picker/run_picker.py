@@ -99,10 +99,10 @@ def main(argv=None):
         logger.info("Using hardware ADC")
         adc = None  # real ADC reader to be implemented / wired here
 
-    # Build initial calibration map. Knob direction is intentionally inverted
-    # by default so the physical 0V position corresponds to the bottom of
-    # menus and 3.3V corresponds to the top.
-    calib_map = {ch: Calibration(inverted=True) for ch in range(8)}
+    # Build initial calibration map. Keep calibration inversion disabled
+    # (default) and implement the traversal inversion at the UI layer so
+    # calibration files remain compatible.
+    calib_map = {ch: Calibration() for ch in range(8)}
     
     try:
         hw = HW(adc_reader=adc, calib_map=calib_map, adc_spi_port=args.adc_spi_port, adc_spi_device=args.adc_spi_device, calib_file=args.calibration)
