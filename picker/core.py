@@ -54,8 +54,9 @@ class PickerCore:
         self._display_queue_lock = threading.Lock()
         self._display_thread = threading.Thread(target=self._display_worker, name="picker-display-worker", daemon=True)
         self._display_thread_stop = False
-        # Executor for per-blit worker so we can apply a timeout
-        self._blit_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        # Executor for per-blit worker so we can apply a timeout. Use two
+        # workers so a single hung blit won't fully block future attempts.
+        self._blit_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
         # When a blit times out, disable further attempts until this timestamp
         self._display_disabled_until = 0.0
         # Save init params to allow re-init attempts later if desired
@@ -151,8 +152,18 @@ class PickerCore:
                         logger.error("Display worker: blit timed out; marking display disabled temporarily")
                         # Mark display disabled for a cooldown period to avoid repeated blocking
                         self._display_disabled_until = time.time() + 5.0
+                        # Schedule a background reinitialization attempt to recover the display
+                        try:
+                            threading.Thread(target=self._attempt_display_reinit, name="display-reinit", daemon=True).start()
+                        except Exception:
+                            logger.exception("Failed to start display reinit thread")
                     except Exception:
                         logger.exception("Display worker: blit raised")
+                        # On persistent errors, also attempt a reinit in background
+                        try:
+                            threading.Thread(target=self._attempt_display_reinit, name="display-reinit", daemon=True).start()
+                        except Exception:
+                            logger.exception("Failed to start display reinit thread after exception")
                     finally:
                         # Do not attempt to cancel running thread (can't kill threads),
                         # but clear busy flag so UI is responsive. The hung blit thread
@@ -166,6 +177,36 @@ class PickerCore:
                     logger.exception("Display worker failed to schedule blit job")
             else:
                 _time.sleep(0.005)
+
+    def _attempt_display_reinit(self):
+        """Attempt to reinitialize the display in background.
+
+        This is triggered after timeouts or persistent blit exceptions. The
+        method will call the display adapter's reinit function and, on
+        success, reset the disabled flag and replace the executor to avoid
+        any stuck worker threads blocking future updates.
+        """
+        try:
+            logger.info("Attempting background display reinitialization")
+            from picker.drivers import display_fast
+            ok = display_fast.reinit(spi_device=self._spi_device, force_simulation=self._force_simulation, rotate=self.rotate)
+            if ok:
+                logger.info("Display reinit successful - clearing disabled flag and refreshing executor")
+                self._display_disabled_until = 0.0
+                # Replace executor to avoid hung threads lingering
+                try:
+                    old = self._blit_executor
+                    self._blit_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+                    try:
+                        old.shutdown(wait=False)
+                    except Exception:
+                        logger.debug("Old blit executor shutdown failed (non-fatal)")
+                except Exception:
+                    logger.exception("Failed to replace blit executor after reinit")
+            else:
+                logger.warning("Display reinit attempt failed; will retry later if necessary")
+        except Exception:
+            logger.exception("Background display reinit failed")
 
     def handle_knob_change(self, ch: int, pos: int):
         # Ignore knob changes during startup grace period

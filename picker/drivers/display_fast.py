@@ -31,6 +31,14 @@ def init(spi_device=0, force_simulation=False, rotate: str = None):
     """
     global _display
     try:
+        # If an existing display exists, close it first to release hardware
+        # resources (SPI, file handles, etc.) before creating a new instance.
+        try:
+            if _display:
+                _display.close()
+        except Exception:
+            logger.debug("Existing display close during init failed; continuing")
+
         # Hardware setup: epaper display is on CE0 (SPI device 0) by default
         # The enhanced driver will use IT8951 package if available, otherwise basic SPI
         _display = create_display(
@@ -45,6 +53,15 @@ def init(spi_device=0, force_simulation=False, rotate: str = None):
         logger.error(f"Display initialization failed: {e}")
         _display = None
         return False
+
+
+def reinit(spi_device=0, force_simulation=False, rotate: str = None):
+    """Convenience wrapper to reinitialize the display from runtime.
+
+    This will attempt to close any existing display and create a fresh one.
+    Returns True on success, False otherwise.
+    """
+    return init(spi_device=spi_device, force_simulation=force_simulation, rotate=rotate)
 
 
 def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None, mode: str = 'auto') -> Path:
@@ -78,14 +95,18 @@ def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None
         try:
             _display.display_image(img_to_send, mode=mode)
             logger.debug(f"Display update completed ({mode}): {file_label}")
+            return None
         except Exception as e:
             logger.error(f"Display update failed ({mode}): {e}")
             # Fallback to auto mode if requested mode fails
             try:
                 _display.display_image(img_to_send, mode='auto')
                 logger.info(f"Fallback display update completed (auto): {file_label}")
+                return None
             except Exception as e2:
                 logger.error(f"Fallback display update also failed: {e2}")
+                # In case of persistent failure, raise so higher-level logic can react
+                raise
     else:
         logger.warning("No display available - image not sent to hardware (in-memory only)")
     
