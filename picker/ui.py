@@ -521,26 +521,43 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                 val_y = top_y + title_h + gap
 
                 if invert_value:
-                    # compute text bbox for value to draw a padded black rect
-                    try:
-                        if hasattr(draw, 'textbbox'):
-                            vb = draw.textbbox((val_x, val_y), sel, font=value_font)
-                            v_w = vb[2] - vb[0]
-                            v_h = vb[3] - vb[1]
-                        else:
-                            v_w, v_h = value_font.getsize(sel)
-                    except Exception:
-                        v_w = len(sel) * (base_font_size // 2)
-                        v_h = base_font_size
-
                     # padding to avoid clipping bottoms; provide a bit of side padding too
                     pad_x = max(6, int(base_font_size * 0.3))
                     pad_y = max(4, int(base_font_size * 0.2))
 
-                    rect_x0 = max(0, val_x - pad_x)
-                    rect_y0 = max(area_y0, val_y - pad_y)
-                    rect_x1 = min(layout_w, val_x + v_w + pad_x)
-                    rect_y1 = min(area_y1, val_y + v_h + pad_y)
+                    try:
+                        # Prefer exact glyph bbox when available so the rect tightly
+                        # surrounds the drawn text without overlapping the title.
+                        if hasattr(draw, 'textbbox'):
+                            vb = draw.textbbox((val_x, val_y), sel, font=value_font)
+                            rect_x0 = vb[0] - pad_x
+                            rect_y0 = vb[1] - pad_y
+                            rect_x1 = vb[2] + pad_x
+                            rect_y1 = vb[3] + pad_y
+                        else:
+                            # Fallback: estimate from text size anchored at val_x,val_y
+                            v_w, v_h = value_font.getsize(sel)
+                            rect_x0 = val_x - pad_x
+                            rect_y0 = val_y - pad_y
+                            rect_x1 = val_x + v_w + pad_x
+                            rect_y1 = val_y + v_h + pad_y
+                    except Exception:
+                        # worst-case fallback approximate box
+                        v_w = len(sel) * (base_font_size // 2)
+                        v_h = base_font_size
+                        rect_x0 = val_x - pad_x
+                        rect_y0 = val_y - pad_y
+                        rect_x1 = val_x + v_w + pad_x
+                        rect_y1 = val_y + v_h + pad_y
+
+                    # Clamp rectangle to visible layout and ensure it does not
+                    # overlap the title above. The rectangle top must be at or
+                    # below the bottom of the title (top_y + title_h).
+                    min_top = top_y + title_h + 1
+                    rect_x0 = max(0, int(rect_x0))
+                    rect_y0 = max(area_y0, int(rect_y0), int(min_top))
+                    rect_x1 = min(layout_w, int(rect_x1))
+                    rect_y1 = min(area_y1, int(rect_y1))
 
                     # draw black rectangle and white text on top
                     draw.rectangle((rect_x0, rect_y0, rect_x1, rect_y1), fill=0)
