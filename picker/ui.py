@@ -235,15 +235,10 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
     except Exception:
         item_font = ImageFont.load_default()
 
-    # Collect selected non-empty values in physical knob order (top->bottom).
-    # Updated physical layout mapping (user-corrected):
-    #  - upper right: CH0
-    #  - upper left:  CH4
-    #  - mid right:   CH5
-    #  - mid left:    CH1
-    #  - bottom right:CH6
-    #  - bottom left: CH2
-    # So the top-to-bottom channel order alternates right/left: [0,4,5,1,6,2]
+    # Fixed six entries in the interleaved physical knob order (top->bottom).
+    # Triplets: right-side knobs are CH0,CH1,CH2 (even indices in the list)
+    # and left-side knobs are CH4,CH5,CH6 (odd indices in the list).
+    # Order top-to-bottom: [0 (right), 4 (left), 1 (right), 5 (left), 2 (right), 6 (left)]
     knob_order = [0, 4, 1, 5, 2, 6]
     entries = []
     for ch in knob_order:
@@ -252,25 +247,70 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
         values = knob.get('values', [""] * 12) if knob else [""] * 12
         pos = positions.get(ch, 0)
         sel = values[pos] if pos < len(values) else ""
-        if sel and sel.strip():
-            entries.append((knob.get('title', key) if knob else key, sel))
+        title = knob.get('title', key) if knob else key
+        entries.append((title, sel))
 
-    # Layout entries in a simple vertical list
+    # Space the six entries evenly in the vertical area below the placeholder
+    # image, spanning from just below the image down to the bottom padding.
+    n = len(entries)
     margin = 8
-    y = py + placeholder_img.height + margin
-    side_x = 12
-    for title, sel in entries:
-        # draw title: value
-        try:
-            draw.text((side_x, y), f"{title}: {sel}", font=item_font, fill=0)
-            if hasattr(item_font, 'getsize'):
-                line_h = item_font.getsize(title)[1]
-            else:
+    area_y0 = py + placeholder_img.height + margin
+    area_y1 = layout_h - pad
+    if area_y1 <= area_y0:
+        # fallback simple stacking
+        side_x = 12
+        y = area_y0
+        for title, sel in entries:
+            text = f"{title}: {sel}"
+            try:
+                draw.text((side_x, y), text, font=item_font, fill=0)
+                if hasattr(item_font, 'getsize'):
+                    line_h = item_font.getsize(text)[1]
+                else:
+                    line_h = base_font_size
+            except Exception:
+                draw.text((side_x, y), text, fill=0)
                 line_h = base_font_size
-        except Exception:
-            draw.text((side_x, y), f"{title}: {sel}", fill=0)
-            line_h = base_font_size
-        y += max(line_h + 4, base_font_size + 4)
+            y += max(line_h + 4, base_font_size + 4)
+    else:
+        area_h = area_y1 - area_y0
+        # If we want endpoints included, divide by (n-1) so first is at area_y0 and
+        # last is at area_y1
+        step = area_h / max(1, (n - 1))
+        left_x = 12
+        right_x_pad = 12
+        for i, (title, sel) in enumerate(entries):
+            # compute baseline y for this entry and adjust to draw the text such
+            # that it appears centered on that baseline (approx)
+            target_y = int(round(area_y0 + i * step))
+            text = f"{title}: {sel}"
+            try:
+                if hasattr(item_font, 'getsize'):
+                    tw, th = item_font.getsize(text)
+                else:
+                    tw = len(text) * (base_font_size // 2)
+                    th = base_font_size
+            except Exception:
+                tw = len(text) * (base_font_size // 2)
+                th = base_font_size
+            text_y = target_y - th // 2
+
+            # Even indices in knob_order are right-side entries -> right-justify
+            if i % 2 == 0:
+                x = max( left_x, layout_w - right_x_pad - tw )
+            else:
+                x = left_x
+
+            # Clip y to visible area
+            if text_y < area_y0:
+                text_y = area_y0
+            if text_y + th > area_y1:
+                text_y = area_y1 - th
+
+            try:
+                draw.text((x, text_y), text, font=item_font, fill=0)
+            except Exception:
+                draw.text((x, text_y), text, fill=0)
 
     # Apply requested output rotation (convenience for saving a portrait-oriented
     # image when the display is mounted rotated). This does not change how
