@@ -47,6 +47,13 @@ class PickerCore:
         self.last_main_positions = {}
         self.running = False
 
+        # Display worker queue and thread (drop-old behaviour)
+        # _display_queue holds tuples (tag, PIL.Image, rotate, mode)
+        self._display_queue = []
+        self._display_queue_lock = threading.Lock()
+        self._display_thread = threading.Thread(target=self._display_worker, name="picker-display-worker", daemon=True)
+        self._display_thread_stop = False
+
         # Add startup protection - ignore changes for first few seconds
         self.startup_time = time.time()
         self.startup_grace_period = 1.0  # seconds (reduced for testing)
@@ -94,6 +101,47 @@ class PickerCore:
             # to on-demand composition in _process_knob_update
             logger.exception("Failed to build overlay cache; will compose overlays on-demand")
 
+        # Start the display worker thread
+        try:
+            self._display_thread.start()
+        except Exception:
+            logger.exception("Failed to start display worker thread; display will be used synchronously")
+
+    def _display_worker(self):
+        """Worker thread that processes the latest display job and drops older ones.
+
+        Queue entries are tuples: (tag, PIL.Image, rotate, mode)
+        """
+        import time as _time
+        while not self._display_thread_stop:
+            job = None
+            try:
+                with self._display_queue_lock:
+                    if self._display_queue:
+                        # keep only the newest job
+                        job = self._display_queue[-1]
+                        self._display_queue.clear()
+            except Exception:
+                job = None
+
+            if job:
+                try:
+                    tag, img, rotate, mode = job
+                    # mark busy while performing blit
+                    self.display_busy = True
+                    blit(img, tag, rotate=rotate, mode=mode)
+                except Exception:
+                    logger.exception("Display worker failed to blit job")
+                finally:
+                    self.display_busy = False
+                    # record last display update time
+                    try:
+                        self.last_display_update = time.time()
+                    except Exception:
+                        pass
+            else:
+                _time.sleep(0.005)
+
     def handle_knob_change(self, ch: int, pos: int):
         # Ignore knob changes during startup grace period
         if time.time() - self.startup_time < self.startup_grace_period:
@@ -117,9 +165,8 @@ class PickerCore:
 
     def _process_knob_update(self, ch: int, pos: int, timestamp: float):
         """Process a knob update by rendering and blitting to display."""
+        # Non-blocking: prepare image (prefer cache) and enqueue the blit job
         try:
-            self.display_busy = True
-            
             # Compose overlay for knob channel ch
             key = f"CH{ch}"
             knob = self.texts.get(key)
@@ -132,7 +179,7 @@ class PickerCore:
             display_pos = max(0, min(len(values) - 1, (len(values) - 1) - pos))
 
             logger.info(f"Knob change: CH{ch} -> position {pos} ('{title}'), display {display_pos}")
-            # Prefer a pre-rendered cached overlay image for speed
+
             img = None
             try:
                 cached = self.overlay_cache.get(ch)
@@ -142,24 +189,25 @@ class PickerCore:
                 img = None
 
             if img is None:
-                # Fallback to on-demand composition
                 img = compose_overlay(title, values, display_pos, full_screen=self.effective_display_size)
-            # Use FAST mode for knob overlays to avoid flicker
-            blit(img, f"overlay_ch{ch}_pos{pos}", rotate=self.rotate, mode='FAST')
-            
-            # Mark overlay visible for this knob
+
+            # Enqueue the latest blit job (drop-old semantics)
+            with self._display_queue_lock:
+                # Keep only newest job; drop existing ones
+                self._display_queue.clear()
+                self._display_queue.append((f"overlay_ch{ch}_pos{pos}", img, self.rotate, 'FAST'))
+
+            # Mark overlay visible and update state; actual blit is handled by worker
             self.overlay_visible = True
             self.current_knob = (ch, pos)
             self.last_display_update = timestamp
-            
-            # Clear this knob's pending update since we just processed it
+
+            # Clear this knob's pending update since we've enqueued it
             if ch in self.pending_updates:
                 del self.pending_updates[ch]
-                
+
         except Exception as e:
-            logger.error(f"Failed to process knob update: {e}")
-        finally:
-            self.display_busy = False
+            logger.exception(f"Failed to enqueue knob update: {e}")
 
     def handle_go(self):
         logger.info("GO button pressed!")
@@ -190,7 +238,14 @@ class PickerCore:
                 main_positions[ch] = display_pos
             img = compose_main_screen(self.texts, main_positions, full_screen=self.effective_display_size)
             # Use auto mode for main screen to get proper grayscale rendering for images
-            blit(img, "main", rotate=self.rotate, mode='auto')
+            # Enqueue main screen as a display job (don't block)
+            try:
+                with self._display_queue_lock:
+                    self._display_queue.clear()
+                    self._display_queue.append(("main", img, self.rotate, 'auto'))
+            except Exception:
+                # Fallback to synchronous blit if queueing fails
+                blit(img, "main", rotate=self.rotate, mode='auto')
             self.last_main_positions = main_positions
         except Exception:
             logger.exception("Failed to compose/show main screen")
@@ -292,6 +347,13 @@ class PickerCore:
                     break
         finally:
             self.running = False
+            # Stop display worker thread and wait for it to finish
+            try:
+                self._display_thread_stop = True
+                if self._display_thread and self._display_thread.is_alive():
+                    self._display_thread.join(timeout=1.0)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
