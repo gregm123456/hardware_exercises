@@ -297,8 +297,11 @@ class PickerCore:
                 sel = values[display_pos] if display_pos < len(values) else ""
                 # Avoid embedding commas inside labels (replace with space)
                 sel = (sel or "").replace(',', ' ').strip()
-                labels.append(sel)
-            knob_csv = ','.join(labels)
+                # Only append non-empty terms so trailing blanks don't create
+                # trailing commas in the generated prompt CSV.
+                if sel:
+                    labels.append(sel)
+            knob_csv = ', '.join(labels)
         except Exception:
             knob_csv = ''
 

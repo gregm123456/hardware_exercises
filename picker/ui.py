@@ -271,10 +271,14 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
     # current image, so callers should pass the exact string used for
     # generation when available.
     try:
-        # Determine source text to render: only render when an explicit
-        # `image_source_text` is provided; do NOT fall back to current knob
-        # positions (these are arbitrary relative to an existing image).
-        src_text = image_source_text if image_source_text is not None else ''
+        # Determine source text to render:
+        # - If an explicit `image_source_text` is provided, use it.
+        # - If none is available, show a short instructional message so the
+        #   user knows the image is old and can press GO to regenerate.
+        if image_source_text is not None:
+            src_text = image_source_text
+        else:
+            src_text = 'Old image; press "Go" button to generate a new one.'
 
         # If nothing to draw, skip this block
         if src_text:
