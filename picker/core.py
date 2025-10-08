@@ -31,7 +31,7 @@ class PickerCore:
             self.effective_display_size = display_size
 
         self.overlay_visible = False
-        self.overlay_timeout = 2.0  # seconds
+        self.overlay_timeout = 1.5  # seconds (default idle/menu clear timeout)
         # track last activity per knob channel so each knob keeps its own 2s timeout
         self.last_activity_per_knob = {}
         # current knob being shown as an overlay: tuple (ch, pos) or None
