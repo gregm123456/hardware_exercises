@@ -226,11 +226,68 @@ class PickerCore:
 
     def handle_go(self):
         logger.info("GO button pressed!")
+        # Immediately show GO message briefly
         img = compose_message("GO!", full_screen=self.effective_display_size)
         blit(img, "go", rotate=self.rotate, mode='FAST')
         # GO overrides any overlay; clear overlay state
         self.overlay_visible = False
         self.current_knob = None
+
+        # Kick off background generation of an image for the main screen.
+        # Build a CSV of knob-selected numeric positions (values are indices 0..n-1)
+        try:
+            positions = self.hw.read_positions()
+            # Use human-readable label values from texts (same ordering used
+            # in the UI): channels [0,4,1,5,2,6]. Compute display_pos inversion
+            # so the selected label matches what the user sees on-screen.
+            knobs = [0, 4, 1, 5, 2, 6]
+            labels = []
+            for ch in knobs:
+                pos, changed = positions.get(ch, (0, False))
+                knob = self.texts.get(f"CH{ch}")
+                values = knob.get('values', [""] * 12) if knob else [""] * 12
+                display_pos = max(0, min(len(values) - 1, (len(values) - 1) - pos))
+                sel = values[display_pos] if display_pos < len(values) else ""
+                # Avoid embedding commas inside labels (replace with space)
+                sel = (sel or "").replace(',', ' ').strip()
+                labels.append(sel)
+            knob_csv = ','.join(labels)
+        except Exception:
+            knob_csv = ''
+
+        # Compose prompt and start generation in a separate thread so we don't
+        # block the main loop. The resulting image will be saved to the
+        # Picker assets placeholder which `compose_main_screen` will load.
+        try:
+            import threading
+            from picker import sd_config
+            from picker import sd_client
+
+            def _bg_generate():
+                prompt = f"{sd_config.IMAGE_PROMPT_PREFIX}{knob_csv}{sd_config.IMAGE_PROMPT_SUFFIX}"
+                try:
+                    sd_client.generate_image(prompt, output_path=sd_config.DEFAULT_OUTPUT_PATH, overrides={
+                        'steps': sd_config.SD_STEPS,
+                        'width': sd_config.SD_WIDTH,
+                        'height': sd_config.SD_HEIGHT,
+                        'cfg_scale': sd_config.SD_CFG_SCALE,
+                        'sampler_name': sd_config.SD_SAMPLER_NAME,
+                        'n_iter': sd_config.SD_N_ITER,
+                        'batch_size': sd_config.SD_BATCH_SIZE,
+                    })
+                    # After generation, request immediate main screen redraw
+                    try:
+                        img = compose_main_screen(self.texts, self.last_main_positions, full_screen=self.effective_display_size)
+                        blit(img, "main", rotate=self.rotate, mode='auto')
+                    except Exception:
+                        logger.exception("Failed to blit generated main screen")
+                except Exception:
+                    logger.exception("Background SD image generation failed")
+
+            t = threading.Thread(target=_bg_generate, name="sd-generate", daemon=True)
+            t.start()
+        except Exception:
+            logger.exception("Failed to start background SD generation thread")
 
     def handle_reset(self):
         logger.info("RESET button pressed!")
