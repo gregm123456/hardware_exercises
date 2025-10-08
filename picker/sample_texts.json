@@ -11,17 +11,17 @@
   "CH0": {
     "title": "Sex/Gender",
     "values": [
-      "Male",
-      "Female",
-      "Non-binary",
-      "Genderqueer",
       "Agender",
       "Bigender",
-      "Two-spirit",
-      "Transgender",
       "Cisgender",
-      "Intersex",
+      "Female",
       "Genderfluid",
+      "Genderqueer",
+      "Intersex",
+      "Male",
+      "Non-binary",
+      "Transgender",
+      "Two-spirit",
       ""
     ]
   },
@@ -65,17 +65,17 @@
   "CH4": {
     "title": "Politics",
     "values": [
-      "Liberal",
-      "Conservative",
-      "Moderate",
-      "Progressive",
-      "Libertarian",
+      "Anarchist",
       "Authoritarian",
       "Centrist",
+      "Conservative",
       "Left-wing",
-      "Right-wing",
-      "Anarchist",
+      "Liberal",
+      "Libertarian",
+      "Moderate",
       "Populist",
+      "Progressive",
+      "Right-wing",
       ""
     ]
   },
@@ -83,17 +83,17 @@
   "CH5": {
     "title": "Race",
     "values": [
-      "White",
-      "Black",
+      "African",
       "Asian",
+      "Black",
+      "East Asian",
       "Hispanic",
       "Indigenous",
+      "Middle Eastern",
       "Mixed Race",
       "Pacific Islander",
-      "Middle Eastern",
       "South Asian",
-      "East Asian",
-      "African",
+      "White",
       ""
     ]
   },
@@ -101,16 +101,16 @@
   "CH6": {
     "title": "Religion",
     "values": [
-      "Christian",
-      "Muslim",
-      "Jewish",
-      "Hindu",
-      "Buddhist",
-      "Atheist",
       "Agnostic",
-      "Sikh",
+      "Atheist",
       "Baháʼí",
+      "Buddhist",
+      "Christian",
+      "Hindu",
       "Jain",
+      "Jewish",
+      "Muslim",
+      "Sikh",
       "Taoist",
       ""
     ]
