@@ -51,6 +51,15 @@ def main(argv=None):
     
     logger.info(f"Starting picker - ADC on CE{args.adc_spi_device}, Display on CE{args.display_spi_device}")
     
+    # Display startup message as soon as possible, before heavy init
+    try:
+        logger.info("Displaying startup message")
+        img = compose_message("Starting...", full_screen=(args.display_w, args.display_h))
+        blit(img, "starting", rotate=(None if args.rotate == 'none' else args.rotate), spi_device=args.display_spi_device, force_simulation=args.force_simulation)
+    except Exception as e:
+        # If display or PIL fails, continue silently to the main loop
+        logger.warning(f"Early startup display failed: {e} - continuing anyway")
+
     texts = load_texts(args.config) if args.config else load_texts()
 
     # If user requested to run the calibrator through run_picker, invoke it
@@ -130,9 +139,7 @@ def main(argv=None):
     # explicit initial clear is redundant on most hardware and can be skipped
     # to save time and extra flashes.
     try:
-        logger.info("Displaying startup message")
-        img = compose_message("Starting...", full_screen=(args.display_w, args.display_h))
-        blit(img, "starting", rotate=(None if args.rotate == 'none' else args.rotate))
+        # Give the user time to see the startup message
         time.sleep(1.0)
         # Directly show the main placeholder screen without an intermediate clear
         try:
@@ -142,7 +149,7 @@ def main(argv=None):
         logger.info("Ready - entering main loop")
     except Exception as e:
         # If display or PIL fails, continue silently to the main loop
-        logger.warning(f"Startup display failed: {e} - continuing anyway")
+        logger.warning(f"Post-init display failed: {e} - continuing anyway")
 
     def handle_sigint(sig, frame):
         logger.info('Stopping picker application...')
