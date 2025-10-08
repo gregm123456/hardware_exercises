@@ -280,17 +280,21 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
         left_x = 12
         # Add a slightly larger right padding and an extra safety offset to
         # avoid clipping the last glyph when right-justifying text. Some
-        # fonts metrics differ slightly between environments so a small
+        # font metrics differ slightly between environments so a small
         # conservative offset helps prevent truncation.
         right_x_pad = 18
-        extra_safety = 4
+        extra_safety = 6
         for i, (title, sel) in enumerate(entries):
             # compute baseline y for this entry and adjust to draw the text such
             # that it appears centered on that baseline (approx)
             target_y = int(round(area_y0 + i * step))
             text = f"{title}: {sel}"
             try:
-                if hasattr(item_font, 'getsize'):
+                if hasattr(draw, 'textbbox'):
+                    bb = draw.textbbox((0, 0), text, font=item_font)
+                    tw = bb[2] - bb[0]
+                    th = bb[3] - bb[1]
+                elif hasattr(item_font, 'getsize'):
                     tw, th = item_font.getsize(text)
                 else:
                     tw = len(text) * (base_font_size // 2)
