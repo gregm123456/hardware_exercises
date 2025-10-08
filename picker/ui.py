@@ -282,18 +282,22 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                     else:
                         title_h = base_font_size
                     # small gap between title and value (a wee bit)
-                    gap = 5
+                    gap = 7
                     draw.text((side_x, y + title_h + gap), sel, font=value_font, fill=0)
                     if hasattr(value_font, 'getsize'):
                         val_h = value_font.getsize(sel)[1]
                     else:
                         val_h = base_font_size
-                    # append a colon to visually separate title from value instead
-                    # of underlining which can intersect glyphs on some fonts.
+                    # wrap title with colons (prefix and suffix) to separate it from
+                    # the value. Strip any existing colons/spaces to avoid duplicates.
                     try:
-                        title = title.rstrip() + ':'
+                        clean = title.strip().strip(':')
+                        title = f":{clean}:"
                     except Exception:
-                        title = title + ':'
+                        try:
+                            title = f":{title.strip()}:"
+                        except Exception:
+                            title = ':' + title + ':'
             except Exception:
                 draw.text((side_x, y), title, fill=0)
                 draw.text((side_x, y + base_font_size + 2), sel, fill=0)
@@ -334,7 +338,7 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                 val_h = base_font_size
 
             # small gap between title and value
-            gap = 5
+            gap = 7
             pair_h = title_h + gap + val_h
             target_y = int(round(area_y0 + i * step))
             top_y = target_y - pair_h // 2
@@ -356,9 +360,13 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
             try:
                 # append colon to title and draw stacked
                 try:
-                    t = title.rstrip() + ':'
+                    clean = title.strip().strip(':')
+                    t = f":{clean}:"
                 except Exception:
-                    t = title + ':'
+                    try:
+                        t = f":{title.strip()}:"
+                    except Exception:
+                        t = ':' + title + ':'
                 draw.text((x, top_y), t, font=title_font, fill=0)
                 draw.text((x, top_y + title_h + gap), sel, font=value_font, fill=0)
             except Exception:
