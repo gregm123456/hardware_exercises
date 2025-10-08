@@ -12,8 +12,8 @@ import atexit
 from picker.hw import HW, SimulatedMCP3008, Calibration
 from picker.config import load_texts, DEFAULT_DISPLAY
 from picker.core import PickerCore
-from picker.ui import compose_message
-from picker.drivers.display_fast import init as display_init, blit, clear_display, close
+from picker.ui import compose_message, compose_overlay
+from picker.drivers.display_fast import blit, clear_display, close
 
 # Set up logging
 logging.basicConfig(
@@ -51,17 +51,6 @@ def main(argv=None):
     
     logger.info(f"Starting picker - ADC on CE{args.adc_spi_device}, Display on CE{args.display_spi_device}")
     
-    # Display startup message as soon as possible, before heavy init
-    try:
-        logger.info("Displaying startup message")
-        # Manually init the display for this one-off blit
-        display_init(spi_device=args.display_spi_device, force_simulation=args.force_simulation, rotate=(None if args.rotate == 'none' else args.rotate))
-        img = compose_message("Starting...", full_screen=(args.display_w, args.display_h))
-        blit(img, "starting", rotate=(None if args.rotate == 'none' else args.rotate))
-    except Exception as e:
-        # If display or PIL fails, continue silently to the main loop
-        logger.warning(f"Early startup display failed: {e} - continuing anyway")
-
     texts = load_texts(args.config) if args.config else load_texts()
 
     # If user requested to run the calibrator through run_picker, invoke it
@@ -141,7 +130,9 @@ def main(argv=None):
     # explicit initial clear is redundant on most hardware and can be skipped
     # to save time and extra flashes.
     try:
-        # Give the user time to see the startup message
+        logger.info("Displaying startup message")
+        img = compose_message("Starting...", full_screen=(args.display_w, args.display_h))
+        blit(img, "starting", rotate=(None if args.rotate == 'none' else args.rotate))
         time.sleep(1.0)
         # Directly show the main placeholder screen without an intermediate clear
         try:
@@ -151,7 +142,7 @@ def main(argv=None):
         logger.info("Ready - entering main loop")
     except Exception as e:
         # If display or PIL fails, continue silently to the main loop
-        logger.warning(f"Post-init display failed: {e} - continuing anyway")
+        logger.warning(f"Startup display failed: {e} - continuing anyway")
 
     def handle_sigint(sig, frame):
         logger.info('Stopping picker application...')
