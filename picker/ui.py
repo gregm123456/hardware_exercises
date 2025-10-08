@@ -525,46 +525,67 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                     pad_x = max(6, int(base_font_size * 0.3))
                     pad_y = max(4, int(base_font_size * 0.2))
 
-                    # Ensure value baseline is pushed down enough so the inverted
-                    # block cannot overlap the title above. This moves the value
-                    # down by at least pad_y if needed.
-                    try:
-                        val_y = max(val_y, top_y + title_h + pad_y + 1)
-                    except Exception:
-                        val_y = val_y
+                    # Determine the pair vertical bounds so we never draw or
+                    # position text outside its allocated pair area.
+                    pair_top = top_y
+                    pair_bottom = top_y + pair_h
 
+                    # Desired baseline (stacked under title)
+                    desired_val_y = top_y + title_h + gap
+
+                    # Compute value text height so we can clamp baseline correctly.
                     try:
                         if hasattr(draw, 'textbbox'):
-                            vb = draw.textbbox((val_x, val_y), sel, font=value_font)
+                            vb_test = draw.textbbox((val_x, desired_val_y), sel, font=value_font)
+                            v_h = vb_test[3] - vb_test[1]
+                        else:
+                            v_h = value_font.getsize(sel)[1]
+                    except Exception:
+                        v_h = val_h if 'val_h' in locals() else base_font_size
+
+                    # Clamp baseline so the text bbox (with padding) stays within pair bounds
+                    min_baseline = pair_top + title_h + 1
+                    max_baseline = pair_bottom - v_h - pad_y - 1
+                    try:
+                        final_val_y = int(max(min_baseline, min(desired_val_y, max_baseline)))
+                    except Exception:
+                        final_val_y = desired_val_y
+
+                    # Now compute exact bbox for the final baseline and padded rect
+                    try:
+                        if hasattr(draw, 'textbbox'):
+                            vb = draw.textbbox((val_x, final_val_y), sel, font=value_font)
                             rect_x0 = vb[0] - pad_x
                             rect_y0 = vb[1] - pad_y
                             rect_x1 = vb[2] + pad_x
                             rect_y1 = vb[3] + pad_y
                         else:
-                            v_w, v_h = value_font.getsize(sel)
+                            v_w = value_font.getsize(sel)[0]
                             rect_x0 = val_x - pad_x
-                            rect_y0 = val_y - pad_y
+                            rect_y0 = final_val_y - pad_y
                             rect_x1 = val_x + v_w + pad_x
-                            rect_y1 = val_y + v_h + pad_y
+                            rect_y1 = final_val_y + v_h + pad_y
                     except Exception:
                         v_w = len(sel) * (base_font_size // 2)
-                        v_h = base_font_size
                         rect_x0 = val_x - pad_x
-                        rect_y0 = val_y - pad_y
+                        rect_y0 = final_val_y - pad_y
                         rect_x1 = val_x + v_w + pad_x
-                        rect_y1 = val_y + v_h + pad_y
+                        rect_y1 = final_val_y + v_h + pad_y
 
-                    # Clamp rectangle to visible layout and ensure it does not
-                    # overlap the title above by forcing the top >= title bottom
-                    min_top = top_y + title_h + max(2, (gap // 2))
+                    # Clamp rect to the pair and overall layout
                     rect_x0 = max(0, int(rect_x0))
-                    rect_y0 = max(area_y0, int(rect_y0), int(min_top))
+                    rect_y0 = max(area_y0, int(rect_y0), pair_top + title_h + 1)
                     rect_x1 = min(layout_w, int(rect_x1))
-                    rect_y1 = min(area_y1, int(rect_y1))
+                    rect_y1 = min(area_y1, int(rect_y1), pair_bottom - 1)
 
-                    # draw black rectangle and white text on top
-                    draw.rectangle((rect_x0, rect_y0, rect_x1, rect_y1), fill=0)
-                    draw.text((val_x, val_y), sel, font=value_font, fill=255)
+                    # If clamping produced an invalid rect, fallback to drawing
+                    # un-inverted text to avoid visual corruption.
+                    if rect_y1 <= rect_y0 or rect_x1 <= rect_x0:
+                        draw.text((val_x, desired_val_y), sel, font=value_font, fill=0)
+                    else:
+                        # draw black rectangle and white text on top
+                        draw.rectangle((rect_x0, rect_y0, rect_x1, rect_y1), fill=0)
+                        draw.text((val_x, final_val_y), sel, font=value_font, fill=255)
                 else:
                     draw.text((val_x, val_y), sel, font=value_font, fill=0)
             except Exception:
