@@ -219,7 +219,7 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
     except Exception:
         pass
     
-    px = (layout_w - placeholder_img.width) // 2
+    px = 12
     py = 8
     img.paste(placeholder_img, (px, py))
 
@@ -262,6 +262,143 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
         sel = values[pos] if pos < len(values) else ""
         title = knob.get('title', key) if knob else key
         entries.append((title, sel))
+
+    # --- New: Draw the image-generation source terms to the right of the
+    # reserved image area (top-aligned). These are the selected knob values
+    # used to generate the main image (channels: 0,4,1,5,2,6). The text is a
+    # comma-space separated list with empty terms omitted. It will be wrapped
+    # on word boundaries to fit into the area to the right of the image,
+    # constrained to not overlap the image, not extend past the right edge,
+    # and not extend more than 512px down from the top of the portrait area.
+    try:
+        # Build the comma-separated source terms in the same order used for
+        # generation in PickerCore.handle_go
+        source_knobs = [0, 4, 1, 5, 2, 6]
+        src_terms = []
+        for ch in source_knobs:
+            key = f"CH{ch}"
+            knob = texts.get(key)
+            values = knob.get('values', [""] * 12) if knob else [""] * 12
+            pos = positions.get(ch, 0)
+            term = values[pos] if pos < len(values) else ""
+            if term:
+                # sanitize commas inside terms to avoid confusing separation
+                term = term.replace(',', ' ').strip()
+                if term:
+                    src_terms.append(term)
+        src_text = ', '.join(src_terms)
+
+        # If nothing to draw, skip this block
+        if src_text:
+            # Compute font metrics and available area
+            right_gap = 12
+            pad_right = 12
+            x0 = px + placeholder_img.width + right_gap
+            area_w = max(8, layout_w - x0 - pad_right)
+            area_y0 = py
+            area_h = min(placeholder_img.height, 512)  # do not extend more than 512px
+            area_y1 = area_y0 + area_h
+
+            # Prepare wrapping using the value_font (smaller regular font)
+            # Fallback to title_font if value_font is not usable
+            wrap_font = value_font if 'value_font' in locals() else title_font
+            # compute line height
+            try:
+                if hasattr(draw, 'textbbox'):
+                    lh = draw.textbbox((0, 0), 'Ay', font=wrap_font)[3]
+                else:
+                    lh = wrap_font.getsize('Ay')[1]
+            except Exception:
+                lh = max(12, int(base_font_size * 0.9))
+
+            # Simple greedy word-wrap that doesn't break words. Words are
+            # separated by spaces; commas remain attached to previous words.
+            words = src_text.split(' ')
+            lines = []
+            cur = ''
+            for wpart in words:
+                candidate = (cur + ' ' + wpart).strip() if cur else wpart
+                try:
+                    if hasattr(draw, 'textbbox'):
+                        tw = draw.textbbox((0, 0), candidate, font=wrap_font)[2]
+                    else:
+                        tw = wrap_font.getsize(candidate)[0]
+                except Exception:
+                    tw = len(candidate) * (int(lh * 0.6))
+                if tw <= area_w:
+                    cur = candidate
+                else:
+                    if cur:
+                        lines.append(cur)
+                    # if single word is longer than area, force-break it
+                    # by chopping (rare) to avoid infinite loop
+                    try:
+                        if hasattr(draw, 'textbbox'):
+                            w_single = draw.textbbox((0, 0), wpart, font=wrap_font)[2]
+                        else:
+                            w_single = wrap_font.getsize(wpart)[0]
+                    except Exception:
+                        w_single = len(wpart) * (int(lh * 0.6))
+                    if w_single > area_w:
+                        # break the long word into chunks that fit
+                        acc = ''
+                        for ch_c in wpart:
+                            cand2 = acc + ch_c
+                            try:
+                                tw2 = draw.textbbox((0, 0), cand2, font=wrap_font)[2] if hasattr(draw, 'textbbox') else wrap_font.getsize(cand2)[0]
+                            except Exception:
+                                tw2 = len(cand2) * (int(lh * 0.6))
+                            if tw2 <= area_w:
+                                acc = cand2
+                            else:
+                                if acc:
+                                    lines.append(acc)
+                                acc = ch_c
+                        if acc:
+                            cur = acc
+                        else:
+                            cur = ''
+                    else:
+                        cur = wpart
+            if cur:
+                lines.append(cur)
+
+            # Truncate lines if they exceed available vertical space
+            max_lines = max(1, area_h // max(1, lh))
+            if len(lines) > max_lines:
+                # keep as many lines as fit, append ellipsis to last line
+                lines = lines[:max_lines]
+                if lines:
+                    last = lines[-1]
+                    # trim last line to leave room for ellipsis if necessary
+                    ell = '...'
+                    try:
+                        # shrink last until it fits with ellipsis
+                        while True:
+                            test = last + ell
+                            tw = draw.textbbox((0, 0), test, font=wrap_font)[2] if hasattr(draw, 'textbbox') else wrap_font.getsize(test)[0]
+                            if tw <= area_w or not last:
+                                break
+                            last = last.rsplit(' ', 1)[0] if ' ' in last else last[:-1]
+                    except Exception:
+                        pass
+                    lines[-1] = (last + ell).strip()
+
+            # Draw the wrapped lines top-aligned within the area
+            ty = area_y0
+            tx = x0
+            try:
+                for ln in lines:
+                    draw.text((tx, ty), ln, font=wrap_font, fill=0)
+                    ty += lh
+                    if ty >= area_y1:
+                        break
+            except Exception:
+                # best-effort fallback
+                pass
+    except Exception:
+        # If anything in this annotation block fails, continue without it
+        pass
 
     # Space the six entries evenly in the vertical area below the placeholder
     # image, spanning from just below the image down to the bottom padding.
