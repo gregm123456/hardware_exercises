@@ -15,12 +15,12 @@
       "Bigender",
       "Cisgender",
       "Female",
-      "Genderfluid",
       "Genderqueer",
       "Intersex",
       "Male",
       "Non-binary",
-      "Transgender",
+      "Transgender Man",
+      "Transgender Woman",
       "Two-spirit",
       ""
     ]
@@ -50,7 +50,7 @@
       "Lower Class",
       "Working Class",
       "Middle Class",
-      "Upper Middle",
+      "Underclass",
       "Upper Class",
       "Wealthy",
       "Affluent",
