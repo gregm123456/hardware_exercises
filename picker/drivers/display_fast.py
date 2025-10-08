@@ -17,6 +17,15 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Global display instance
 _display = None
+# Lock to serialize access to the display instance to avoid races between
+# blit() calls and reinitialization/close operations. Use a simple Lock so
+# long-running hardware ops block reinit until they finish. For interactive
+# responsiveness, blit will try to acquire the lock with a short timeout and
+# fail fast if a reinit/close is underway.
+import threading
+_display_lock = threading.Lock()
+# Flag set while a reinitialization is intentionally in progress
+_reinit_in_progress = False
 
 
 def init(spi_device=0, force_simulation=False, rotate: str = None):
@@ -29,30 +38,38 @@ def init(spi_device=0, force_simulation=False, rotate: str = None):
     Returns:
         True if initialization successful
     """
-    global _display
-    try:
-        # If an existing display exists, close it first to release hardware
-        # resources (SPI, file handles, etc.) before creating a new instance.
-        try:
-            if _display:
-                _display.close()
-        except Exception:
-            logger.debug("Existing display close during init failed; continuing")
-
-        # Hardware setup: epaper display is on CE0 (SPI device 0) by default
-        # The enhanced driver will use IT8951 package if available, otherwise basic SPI
-        _display = create_display(
-            spi_device=spi_device,
-            vcom=-2.06,
-            force_simulation=force_simulation,
-            prefer_enhanced=True  # Try to use IT8951 package for best results
-        )
-        logger.info(f"Display initialized (SPI device {spi_device})")
-        return True
-    except Exception as e:
-        logger.error(f"Display initialization failed: {e}")
-        _display = None
+    global _display, _display_lock, _reinit_in_progress
+    # Perform init under lock to avoid races with blit/close
+    acquired = _display_lock.acquire(timeout=5.0)
+    if not acquired:
+        logger.error("Failed to acquire display lock for init")
         return False
+    try:
+        try:
+            # If an existing display exists, close it first to release hardware
+            # resources (SPI, file handles, etc.) before creating a new instance.
+            try:
+                if _display:
+                    _display.close()
+            except Exception:
+                logger.debug("Existing display close during init failed; continuing")
+
+            # Hardware setup: epaper display is on CE0 (SPI device 0) by default
+            # The enhanced driver will use IT8951 package if available, otherwise basic SPI
+            _display = create_display(
+                spi_device=spi_device,
+                vcom=-2.06,
+                force_simulation=force_simulation,
+                prefer_enhanced=True  # Try to use IT8951 package for best results
+            )
+            logger.info(f"Display initialized (SPI device {spi_device})")
+            return True
+        except Exception as e:
+            logger.error(f"Display initialization failed: {e}")
+            _display = None
+            return False
+    finally:
+        _display_lock.release()
 
 
 def reinit(spi_device=0, force_simulation=False, rotate: str = None):
@@ -61,7 +78,20 @@ def reinit(spi_device=0, force_simulation=False, rotate: str = None):
     This will attempt to close any existing display and create a fresh one.
     Returns True on success, False otherwise.
     """
-    return init(spi_device=spi_device, force_simulation=force_simulation, rotate=rotate)
+    global _reinit_in_progress, _display_lock
+    # Mark reinit in progress so blit calls can fail fast
+    _reinit_in_progress = True
+    try:
+        acquired = _display_lock.acquire(timeout=6.0)
+        if not acquired:
+            logger.error("Could not acquire display lock for reinit")
+            return False
+        try:
+            return init(spi_device=spi_device, force_simulation=force_simulation, rotate=rotate)
+        finally:
+            _display_lock.release()
+    finally:
+        _reinit_in_progress = False
 
 
 def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None, mode: str = 'auto') -> Path:
@@ -85,89 +115,124 @@ def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None
         except Exception:
             logger.exception('Rotation failed, proceeding without rotation')
 
-    # Always save a copy for debugging
-    # Note: previously we saved a copy to disk here for debugging. That disk
-    # I/O adds latency for interactive knob updates. We now keep the
-    # image in-memory and send it directly to the display driver.
-    
-    # Try to update the actual display with requested mode
-    if _display:
-        try:
-            _display.display_image(img_to_send, mode=mode)
-            logger.debug(f"Display update completed ({mode}): {file_label}")
-            return None
-        except Exception as e:
-            logger.error(f"Display update failed ({mode}): {e}")
-            # Fallback to auto mode if requested mode fails
+    # Fast-fail if a reinit is currently in progress
+    if _reinit_in_progress:
+        logger.error("Display reinitialization in progress - blit aborted")
+        return None
+
+    # Try to acquire the display lock quickly so we don't block long-running
+    # update threads (they may be stuck); if we can't get the lock we abort
+    # this blit so higher-level logic can retry later.
+    acquired = _display_lock.acquire(timeout=0.5)
+    if not acquired:
+        logger.error("Could not acquire display lock for blit - aborting")
+        return None
+    try:
+        # Try to update the actual display with requested mode
+        if _display:
             try:
-                _display.display_image(img_to_send, mode='auto')
-                logger.info(f"Fallback display update completed (auto): {file_label}")
+                _display.display_image(img_to_send, mode=mode)
+                logger.debug(f"Display update completed ({mode}): {file_label}")
                 return None
-            except Exception as e2:
-                logger.error(f"Fallback display update also failed: {e2}")
-                # In case of persistent failure, raise so higher-level logic can react
-                raise
-    else:
-        logger.warning("No display available - image not sent to hardware (in-memory only)")
-    
-    return None
+            except Exception as e:
+                logger.error(f"Display update failed ({mode}): {e}")
+                # Fallback to auto mode if requested mode fails
+                try:
+                    _display.display_image(img_to_send, mode='auto')
+                    logger.info(f"Fallback display update completed (auto): {file_label}")
+                    return None
+                except Exception as e2:
+                    logger.error(f"Fallback display update also failed: {e2}")
+                    # In case of persistent failure, raise so higher-level logic can react
+                    raise
+        else:
+            logger.warning("No display available - image not sent to hardware (in-memory only)")
+        return None
+    finally:
+        _display_lock.release()
 
 
 def partial_update(_rect: Tuple[int, int, int, int]):
     """Trigger partial refresh of display region."""
-    global _display
-    if _display:
-        try:
-            # For standalone driver, partial updates are handled automatically
-            # when display_image detects changes
-            logger.debug(f"Partial update requested for region {_rect}")
-            return True
-        except Exception as e:
-            logger.error(f"Partial update failed: {e}")
-            return False
-    return True
+    global _display, _display_lock
+    acquired = _display_lock.acquire(timeout=1.0)
+    if not acquired:
+        logger.error("Could not acquire display lock for partial_update")
+        return False
+    try:
+        if _display:
+            try:
+                logger.debug(f"Partial update requested for region {_rect}")
+                return True
+            except Exception as e:
+                logger.error(f"Partial update failed: {e}")
+                return False
+        return True
+    finally:
+        _display_lock.release()
 
 
 def full_update():
     """Trigger full refresh of the display."""
-    global _display
-    if _display:
-        try:
-            # Re-display current frame buffer with full update
-            _display.display_image(_display.frame_buf, mode='full')
-            logger.info("Full display refresh completed")
-            return True
-        except Exception as e:
-            logger.error(f"Full update failed: {e}")
-            return False
-    return True
+    global _display, _display_lock
+    acquired = _display_lock.acquire(timeout=5.0)
+    if not acquired:
+        logger.error("Could not acquire display lock for full_update")
+        return False
+    try:
+        if _display:
+            try:
+                # Re-display current frame buffer with full update
+                _display.display_image(_display.frame_buf, mode='full')
+                logger.info("Full display refresh completed")
+                return True
+            except Exception as e:
+                logger.error(f"Full update failed: {e}")
+                return False
+        return True
+    finally:
+        _display_lock.release()
 
 
 def clear_display():
     """Clear the display to white."""
-    global _display
-    if _display:
-        try:
-            _display.clear()
-            logger.info("Display cleared")
-            return True
-        except Exception as e:
-            logger.error(f"Display clear failed: {e}")
-            return False
-    return True
+    global _display, _display_lock
+    acquired = _display_lock.acquire(timeout=3.0)
+    if not acquired:
+        logger.error("Could not acquire display lock for clear_display")
+        return False
+    try:
+        if _display:
+            try:
+                _display.clear()
+                logger.info("Display cleared")
+                return True
+            except Exception as e:
+                logger.error(f"Display clear failed: {e}")
+                return False
+        return True
+    finally:
+        _display_lock.release()
 
 
 def close():
     """Close display connection and cleanup."""
-    global _display
-    if _display:
-        try:
-            _display.close()
-            logger.info("Display connection closed")
-        except Exception as e:
-            logger.error(f"Display close failed: {e}")
-        finally:
-            _display = None
+    global _display, _display_lock
+    acquired = _display_lock.acquire(timeout=5.0)
+    if not acquired:
+        logger.error("Could not acquire display lock for close")
+        return
+    try:
+        if _display:
+            try:
+                _display.close()
+                logger.info("Display connection closed")
+            except Exception as e:
+                logger.error(f"Display close failed: {e}")
+            finally:
+                _display = None
+    finally:
+        _display_lock.release()
 
 
 def get_display_size() -> tuple | None:
