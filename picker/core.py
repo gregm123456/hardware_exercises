@@ -179,13 +179,8 @@ class PickerCore:
         self.pending_updates[ch] = (pos, now)
         self.last_activity_per_knob[ch] = now
         
-        # If display is busy or we're within minimum update interval, don't update yet
-        # The pending update will be processed in the next loop_once call
-        if self.display_busy or (now - self.last_display_update) < self.min_update_interval:
-            logger.debug(f"Queuing knob change: CH{ch} -> position {pos} (display busy or throttled)")
-            return
-            
-        # Process the update immediately for maximum responsiveness
+        # Immediately process the update (enqueue latest job). The display worker
+        # will drop intermediate frames if they arrive faster than the hardware.
         self._process_knob_update(ch, pos, now)
 
     def _process_knob_update(self, ch: int, pos: int, timestamp: float):
