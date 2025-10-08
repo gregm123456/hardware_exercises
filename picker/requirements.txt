@@ -1,6 +1,7 @@
 # Picker application dependencies
 # Core imaging and display
 Pillow>=9.0.0
+numpy
 python-dateutil
 
 # Hardware interfaces (Raspberry Pi)

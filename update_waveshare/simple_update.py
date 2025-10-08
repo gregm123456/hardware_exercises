@@ -35,6 +35,7 @@ def parse_args():
     p.add_argument('--two-pass', action='store_true', help='Run a GC16 full pass followed by a DU full pass')
     p.add_argument('--no-quant', action='store_true', help='Do not quantize to 4bpp for full updates; send 8bpp instead')
     p.add_argument('--color-mode', choices=['standard', 'luminance', 'average', 'red', 'green', 'blue'], default='standard', help='Color to grayscale conversion method')
+    p.add_argument('--gamma', type=float, default=1.0, help='Gamma correction factor (1.0=no change, >1.0=brighten midtones, e.g. 1.8 or 2.2)')
     return p.parse_args()
 
 
@@ -71,7 +72,7 @@ def main():
     # for inspection after the update.
     if args.virtual:
         dev = create_device(virtual=True)
-        regions = display_image(args.image, prev_image_path=args.prev, device=dev, virtual=True, mode=args.mode, vcom=args.vcom, rotate=args.rotate, mirror=args.mirror, dither=args.dither, two_pass=args.two_pass, no_quant=args.no_quant, color_mode=args.color_mode)
+        regions = display_image(args.image, prev_image_path=args.prev, device=dev, virtual=True, mode=args.mode, vcom=args.vcom, rotate=args.rotate, mirror=args.mirror, dither=args.dither, two_pass=args.two_pass, no_quant=args.no_quant, color_mode=args.color_mode, gamma=args.gamma)
         print('Updated regions:', regions)
         try:
             input('Press ENTER to close the virtual display...')
@@ -83,7 +84,7 @@ def main():
             except Exception:
                 pass
     else:
-        regions = display_image(args.image, prev_image_path=args.prev, virtual=args.virtual, mode=args.mode, vcom=args.vcom, rotate=args.rotate, mirror=args.mirror, dither=args.dither, two_pass=args.two_pass, no_quant=args.no_quant, color_mode=args.color_mode)
+        regions = display_image(args.image, prev_image_path=args.prev, virtual=args.virtual, mode=args.mode, vcom=args.vcom, rotate=args.rotate, mirror=args.mirror, dither=args.dither, two_pass=args.two_pass, no_quant=args.no_quant, color_mode=args.color_mode, gamma=args.gamma)
         print('Updated regions:', regions)
 
 

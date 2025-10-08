@@ -63,17 +63,18 @@ except ImportError:
 class WaveshareDisplay:
     """Display using existing update_waveshare drivers."""
     
-    def __init__(self, spi_device=0, vcom=-2.06, width=1448, height=1072, virtual=False):
+    def __init__(self, spi_device=0, vcom=-2.06, width=1448, height=1072, virtual=False, gamma=1.0):
         self.width = width
         self.height = height
         self.virtual = virtual
+        self.gamma = gamma
         
         if update_waveshare_available:
             try:
                 self.device = create_waveshare_device(vcom=vcom, virtual=virtual)
                 self.width = getattr(self.device, 'width', width)
                 self.height = getattr(self.device, 'height', height)
-                logger.info(f"Waveshare display initialized: {self.width}x{self.height}")
+                logger.info(f"Waveshare display initialized: {self.width}x{self.height}, gamma={gamma}")
             except Exception as e:
                 logger.error(f"Failed to create waveshare device: {e}")
                 raise
@@ -100,13 +101,14 @@ class WaveshareDisplay:
             img_path = temp_path
         
         try:
-            logger.info(f"Displaying image with waveshare (mode: {mode})")
+            logger.info(f"Displaying image with waveshare (mode: {mode}, gamma: {self.gamma})")
             regions = display_image(
                 img_path, 
                 device=self.device, 
                 virtual=self.virtual, 
                 mode=mode,
-                vcom=-2.06  # Use consistent VCOM
+                vcom=-2.06,  # Use consistent VCOM
+                gamma=self.gamma  # Apply gamma correction
             )
             logger.info(f"Display update completed, regions: {regions}")
         except Exception as e:
@@ -309,7 +311,7 @@ class SimulatedDisplay:
         logger.info("Simulated: Display closed")
 
 
-def create_display(spi_device=0, vcom=-2.06, width=1448, height=1072, force_simulation=False, prefer_enhanced=True):
+def create_display(spi_device=0, vcom=-2.06, width=1448, height=1072, gamma=1.0, force_simulation=False, prefer_enhanced=True):
     """Create the best available display instance.
     
     Args:
@@ -317,6 +319,7 @@ def create_display(spi_device=0, vcom=-2.06, width=1448, height=1072, force_simu
         vcom: VCOM voltage
         width: Display width
         height: Display height
+        gamma: Gamma correction factor (1.0=no change, >1.0=brighten midtones)
         force_simulation: Force simulation mode
         prefer_enhanced: Prefer advanced drivers if available
     
@@ -330,8 +333,8 @@ def create_display(spi_device=0, vcom=-2.06, width=1448, height=1072, force_simu
     # Try update_waveshare first (most likely to work)
     if prefer_enhanced and update_waveshare_available:
         try:
-            logger.info(f"Creating Waveshare display on SPI device {spi_device}")
-            return WaveshareDisplay(spi_device=spi_device, vcom=vcom, width=width, height=height)
+            logger.info(f"Creating Waveshare display on SPI device {spi_device} with gamma={gamma}")
+            return WaveshareDisplay(spi_device=spi_device, vcom=vcom, width=width, height=height, gamma=gamma)
         except Exception as e:
             logger.warning(f"Waveshare display failed: {e} - trying next option")
     
