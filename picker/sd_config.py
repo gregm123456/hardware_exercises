@@ -33,4 +33,4 @@ DEFAULT_OUTPUT_PATH = str(Path(__file__).parent / 'assets' / 'placeholder.png')
 # Gamma adjustment for e-paper display brightness
 # Values > 1.0 brighten midtones while preserving full dynamic range (0-255)
 # Recommended range: 1.2-2.0 for typical e-paper displays
-EPAPER_GAMMA = 1.6
+EPAPER_GAMMA = 2.2
