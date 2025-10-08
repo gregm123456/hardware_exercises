@@ -316,7 +316,20 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
         # conservative offset helps prevent truncation.
         right_x_pad = 18
         extra_safety = 6
-        for i, (title, sel) in enumerate(entries):
+    # Precompute column centers so pairs can be horizontally centered
+    # within their respective left/right halves.
+    half = layout_w // 2
+    left_half_x0 = left_x
+    left_half_x1 = max(left_x, half - extra_safety)
+    available_left = max(0, left_half_x1 - left_half_x0)
+    left_center = left_half_x0 + available_left // 2
+
+    right_half_x0 = min(half + extra_safety, half)
+    right_half_x1 = max(half, layout_w - right_x_pad)
+    available_right = max(0, right_half_x1 - right_half_x0)
+    right_center = right_half_x0 + available_right // 2
+
+    for i, (title, sel) in enumerate(entries):
             # compute baseline y for this entry and adjust to draw the title
             # stacked above the value. We compute combined height and center the
             # pair on the target baseline.
@@ -343,13 +356,24 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
             target_y = int(round(area_y0 + i * step))
             top_y = target_y - pair_h // 2
 
-            # Even indices in knob_order are right-side entries -> right-justify
-            # compute max width between title and value to right-justify
+            # Even indices in knob_order are right-side entries. Center the
+            # pair within the left or right half so title and value are
+            # horizontally aligned on the same x.
             max_w = max(title_w, val_w)
             if i % 2 == 0:
-                x = max(left_x, layout_w - right_x_pad - max_w - extra_safety)
+                # right column: center around right_center
+                x = int(right_center - max_w // 2)
             else:
-                x = left_x
+                # left column: center around left_center
+                x = int(left_center - max_w // 2)
+
+            # clamp x to reasonable bounds to avoid clipping
+            min_x = left_x
+            max_x = max(left_x, layout_w - right_x_pad - max_w - extra_safety)
+            if x < min_x:
+                x = min_x
+            if x > max_x:
+                x = max_x
 
             # Clip y to visible area
             if top_y < area_y0:
