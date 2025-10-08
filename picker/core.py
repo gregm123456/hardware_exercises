@@ -306,22 +306,35 @@ class PickerCore:
         # Kick off background generation of an image for the main screen.
         # Build a CSV of knob-selected numeric positions (values are indices 0..n-1)
         try:
+            # Read positions once at GO time and compute the display-position
+            # mapping that should be shown on the main screen after the
+            # generated image is ready. Capturing these now ensures the
+            # final main screen (image + values) is consistent and updated
+            # in a single blit rather than updating the image first and the
+            # button values later.
             positions = self.hw.read_positions()
-            # Use human-readable label values from texts (same ordering used
-            # in the UI): channels [0,4,1,5,2,6]. Compute display_pos inversion
-            # so the selected label matches what the user sees on-screen.
-            knobs = [0, 4, 1, 5, 2, 6]
-            labels = []
-            for ch in knobs:
-                pos, changed = positions.get(ch, (0, False))
+            # Build main_positions mapping (channel -> display_pos) using
+            # the same inversion logic as `show_main` so on-screen indices
+            # match what the user saw in overlays at GO time.
+            main_positions = {}
+            for ch, (pos, changed) in positions.items():
                 knob = self.texts.get(f"CH{ch}")
                 values = knob.get('values', [""] * 12) if knob else [""] * 12
                 display_pos = max(0, min(len(values) - 1, (len(values) - 1) - pos))
+                main_positions[ch] = display_pos
+
+            # Use human-readable label values from texts (same ordering used
+            # in the UI): channels [0,4,1,5,2,6]. Build the CSV from the
+            # captured display positions so the prompt matches the shown
+            # knob selections.
+            knobs = [0, 4, 1, 5, 2, 6]
+            labels = []
+            for ch in knobs:
+                display_pos = main_positions.get(ch, 0)
+                knob = self.texts.get(f"CH{ch}")
+                values = knob.get('values', [""] * 12) if knob else [""] * 12
                 sel = values[display_pos] if display_pos < len(values) else ""
-                # Avoid embedding commas inside labels (replace with space)
                 sel = (sel or "").replace(',', ' ').strip()
-                # Only append non-empty terms so trailing blanks don't create
-                # trailing commas in the generated prompt CSV.
                 if sel:
                     labels.append(sel)
             knob_csv = ', '.join(labels)
@@ -337,6 +350,9 @@ class PickerCore:
             from picker import sd_client
 
             def _bg_generate():
+                # Capture main_positions and knob_csv from the outer scope so
+                # the background thread composes the final main screen using
+                # the same knob selections that existed when GO was pressed.
                 prompt = f"{sd_config.IMAGE_PROMPT_PREFIX}{knob_csv}{sd_config.IMAGE_PROMPT_SUFFIX}"
                 try:
                     sd_client.generate_image(prompt, output_path=sd_config.DEFAULT_OUTPUT_PATH, overrides={
@@ -359,10 +375,34 @@ class PickerCore:
                             self.last_image_source = knob_csv
                         except Exception:
                             self.last_image_source = prompt
-                        img = compose_main_screen(self.texts, self.last_main_positions, full_screen=self.effective_display_size, image_source_text=self.last_image_source)
-                        blit(img, "main", rotate=self.rotate, mode='auto')
-                    except Exception:
-                        logger.exception("Failed to blit generated main screen")
+
+                        # Compose the final main screen using the latest knob
+                        # positions available at compose-time so the bottom
+                        # knob values reflect what the user currently has set.
+                        # The top annotation (image_source_text) remains the
+                        # GO-time prompt so it accurately describes the image
+                        # that was generated.
+                        try:
+                            # Read fresh positions now that generation finished
+                            latest_positions_raw = self.hw.read_positions()
+                            latest_positions = {}
+                            for ch, (pos, changed) in latest_positions_raw.items():
+                                knob = self.texts.get(f"CH{ch}")
+                                values = knob.get('values', [""] * 12) if knob else [""] * 12
+                                display_pos = max(0, min(len(values) - 1, (len(values) - 1) - pos))
+                                latest_positions[ch] = display_pos
+
+                            img = compose_main_screen(self.texts, latest_positions, full_screen=self.effective_display_size, image_source_text=self.last_image_source)
+                            blit(img, "main", rotate=self.rotate, mode='auto')
+                            # Record that the last shown main positions now
+                            # match the latest positions so the main loop won't
+                            # perform a subsequent redundant refresh.
+                            try:
+                                self.last_main_positions = dict(latest_positions)
+                            except Exception:
+                                self.last_main_positions = latest_positions
+                        except Exception:
+                            logger.exception("Failed to compose/blit generated main screen")
                     finally:
                         # Generation finished (success or not) - allow main redraws
                         try:
