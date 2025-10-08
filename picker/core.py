@@ -67,6 +67,33 @@ class PickerCore:
                 else:
                     self.effective_display_size = self.display_size
 
+        # Pre-render overlay images cache (per knob channel -> list of PIL Images)
+        # This avoids costly text/font composition on each knob tick.
+        self.overlay_cache = {}  # {ch: [PIL.Image, ...]}
+        try:
+            # Build cache for channels named "CH0".."CHn" found in texts
+            for key, knob in self.texts.items():
+                if not isinstance(key, str) or not key.startswith("CH"):
+                    continue
+                try:
+                    ch_idx = int(key[2:])
+                except Exception:
+                    continue
+                values = knob.get('values', [""] * 12) if knob else [""] * 12
+                title = knob.get('title', key) if knob else key
+                imgs = []
+                for pos in range(len(values)):
+                    try:
+                        img = compose_overlay(title, values, max(0, min(len(values) - 1, pos)), full_screen=self.effective_display_size)
+                    except Exception:
+                        img = None
+                    imgs.append(img)
+                self.overlay_cache[ch_idx] = imgs
+        except Exception:
+            # If caching fails for any reason, leave overlay_cache empty and fall back
+            # to on-demand composition in _process_knob_update
+            logger.exception("Failed to build overlay cache; will compose overlays on-demand")
+
     def handle_knob_change(self, ch: int, pos: int):
         # Ignore knob changes during startup grace period
         if time.time() - self.startup_time < self.startup_grace_period:
@@ -105,7 +132,18 @@ class PickerCore:
             display_pos = max(0, min(len(values) - 1, (len(values) - 1) - pos))
 
             logger.info(f"Knob change: CH{ch} -> position {pos} ('{title}'), display {display_pos}")
-            img = compose_overlay(title, values, display_pos, full_screen=self.effective_display_size)
+            # Prefer a pre-rendered cached overlay image for speed
+            img = None
+            try:
+                cached = self.overlay_cache.get(ch)
+                if cached and 0 <= display_pos < len(cached):
+                    img = cached[display_pos]
+            except Exception:
+                img = None
+
+            if img is None:
+                # Fallback to on-demand composition
+                img = compose_overlay(title, values, display_pos, full_screen=self.effective_display_size)
             # Use FAST mode for knob overlays to avoid flicker
             blit(img, f"overlay_ch{ch}_pos{pos}", rotate=self.rotate, mode='FAST')
             
