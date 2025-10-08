@@ -78,6 +78,20 @@ PYTHONPATH=. python picker/run_picker.py --run-calibrator --calibration my_picke
 - **"No positions detected":** Move knobs more slowly, hold positions longer
 - **Too few positions:** Increase `--cluster-tol` to merge nearby readings
 - **Unstable readings:** Decrease `--settle-threshold` for stricter stability
+- **Default behavior updated (more conservative):** The calibrator defaults have
+**Default calibration settings**
+
+The calibrator defaults are conservative to produce clean, well-separated
+voltage clusters that align with the expected ~0.3V per-step spacing:
+
+- `--settle-window`: 0.5 s
+- `--settle-confirm`: 5 consecutive settled windows
+- `--settle-threshold`: 0.035 V
+- `--cluster-tol`: 0.12 V
+
+These defaults mean you should hold each knob position for a couple of
+seconds while calibrating (roughly ~0.5s × 5 confirmations ≈ 2.5s). If you
+prefer faster calibration at the cost of some noise, tune the flags below.
 
 ## Advanced Options
 
