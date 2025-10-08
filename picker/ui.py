@@ -278,7 +278,12 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
         # last is at area_y1
         step = area_h / max(1, (n - 1))
         left_x = 12
-        right_x_pad = 12
+        # Add a slightly larger right padding and an extra safety offset to
+        # avoid clipping the last glyph when right-justifying text. Some
+        # fonts metrics differ slightly between environments so a small
+        # conservative offset helps prevent truncation.
+        right_x_pad = 18
+        extra_safety = 4
         for i, (title, sel) in enumerate(entries):
             # compute baseline y for this entry and adjust to draw the text such
             # that it appears centered on that baseline (approx)
@@ -297,7 +302,7 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
 
             # Even indices in knob_order are right-side entries -> right-justify
             if i % 2 == 0:
-                x = max( left_x, layout_w - right_x_pad - tw )
+                x = max(left_x, layout_w - right_x_pad - tw - extra_safety)
             else:
                 x = left_x
 
