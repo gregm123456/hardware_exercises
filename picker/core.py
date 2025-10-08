@@ -432,6 +432,66 @@ class PickerCore:
         # RESET overrides any overlay; clear overlay state
         self.overlay_visible = False
         self.current_knob = None
+        # Perform a rock-solid display reinitialization and full refresh.
+        try:
+            logger.info("RESET requested: attempting synchronous display reinitialization")
+            from picker.drivers import display_fast
+
+            ok = display_fast.reinit(spi_device=self._spi_device, force_simulation=self._force_simulation, rotate=self.rotate)
+            if ok:
+                logger.info("Display reinit successful (RESET) - refreshing blit executor and performing full refresh")
+                # Clear any disabled flag and replace the potentially-hung executor
+                try:
+                    self._display_disabled_until = 0.0
+                except Exception:
+                    pass
+
+                try:
+                    old = self._blit_executor
+                    self._blit_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+                    try:
+                        old.shutdown(wait=False)
+                    except Exception:
+                        logger.debug("Old blit executor shutdown during RESET failed (non-fatal)")
+                except Exception:
+                    logger.exception("Failed to replace blit executor after RESET")
+
+                # Compose the main screen synchronously and request a full-mode blit
+                try:
+                    try:
+                        positions = self.hw.read_positions()
+                        main_positions = {}
+                        for ch, (pos, changed) in positions.items():
+                            knob = self.texts.get(f"CH{ch}")
+                            values = knob.get('values', [""] * 12) if knob else [""] * 12
+                            display_pos = max(0, min(len(values) - 1, (len(values) - 1) - pos))
+                            main_positions[ch] = display_pos
+                        img = compose_main_screen(self.texts, main_positions, full_screen=self.effective_display_size, image_source_text=self.last_image_source)
+                    except Exception:
+                        # Fallback to a simple composed overlay if main composer fails
+                        logger.exception("Failed to compose main screen for RESET full refresh; using fallback overlay")
+                        img = compose_overlay("", [""] * 12, 0, full_screen=self.effective_display_size)
+
+                    # Use executor to run blit with a timeout so a hung driver doesn't block
+                    try:
+                        fut = self._blit_executor.submit(blit, img, "reset_full_refresh", self.rotate, 'full')
+                        fut.result(timeout=6.0)
+                        logger.info("RESET full refresh completed")
+                    except concurrent.futures.TimeoutError:
+                        logger.error("RESET full refresh blit timed out")
+                        # Try driver-level full_update as a fallback
+                        try:
+                            display_fast.full_update()
+                        except Exception:
+                            logger.exception("Driver-level full_update also failed during RESET")
+                    except Exception:
+                        logger.exception("RESET full refresh blit failed")
+                except Exception:
+                    logger.exception("RESET: failed to perform full refresh")
+            else:
+                logger.warning("Display reinit returned False during RESET; display may remain unavailable")
+        except Exception:
+            logger.exception("RESET: unexpected error during display reinitialization")
 
     def show_main(self):
         """Compose and blit the main idle screen immediately using current HW positions."""
