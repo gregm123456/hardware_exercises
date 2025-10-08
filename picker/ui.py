@@ -263,6 +263,37 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
         title = knob.get('title', key) if knob else key
         entries.append((title, sel))
 
+    # Determine which entries should be inverted compared to the last
+    # generated image source. `image_source_text` is expected to be a
+    # CSV-like string of labels in the same order as `knob_order` (the
+    # code that generates images uses a knob CSV). If no
+    # `image_source_text` is provided, invert all values to indicate they
+    # differ from an unknown/absent image source.
+    invert_map = {ch: False for ch in knob_order}
+    try:
+        if not image_source_text:
+            # No previous image - invert all values
+            for ch in knob_order:
+                invert_map[ch] = True
+        else:
+            # Parse the CSV-ish source into labels. Allow leniency: split on
+            # comma and strip whitespace. If there are fewer labels than
+            # entries, treat missing ones as different (invert).
+            src_labels = [s.strip() for s in image_source_text.split(',') if s is not None]
+            # Compare in the knob_order sequence
+            for idx, ch in enumerate(knob_order):
+                cur_val = entries[idx][1] if idx < len(entries) else ''
+                src_val = src_labels[idx] if idx < len(src_labels) else None
+                # Consider them different if src_val is None or they don't match
+                if src_val is None or (cur_val or '') != (src_val or ''):
+                    invert_map[ch] = True
+                else:
+                    invert_map[ch] = False
+    except Exception:
+        # On any parsing error, default to inverting all to be conservative
+        for ch in knob_order:
+            invert_map[ch] = True
+
     # --- New: Draw the image-generation source terms to the right of the
     # reserved image area (top-aligned). If `image_source_text` is provided
     # it will be used directly; otherwise fall back to building the text from
@@ -408,7 +439,36 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                         title_h = base_font_size
                     # small gap between title and value (a wee bit)
                     gap = 7
-                    draw.text((side_x, y + title_h + gap), sel, font=value_font, fill=0)
+                    # If this entry should be inverted, draw a black
+                    # rectangle behind the value and render the value in
+                    # white; otherwise draw normally in black.
+                    val_x = side_x
+                    val_y = y + title_h + gap
+                    try:
+                        if hasattr(draw, 'textbbox'):
+                            vb = draw.textbbox((0, 0), sel, font=value_font)
+                            val_w = vb[2] - vb[0]
+                            val_h = vb[3] - vb[1]
+                        else:
+                            val_w, val_h = value_font.getsize(sel)
+                    except Exception:
+                        val_w = max(10, len(sel) * (base_font_size // 2))
+                        val_h = base_font_size
+
+                    ch_key = None
+                    try:
+                        # Map current iteration to knob by order
+                        idx = entries.index((title, sel))
+                        ch_key = knob_order[idx]
+                    except Exception:
+                        ch_key = None
+
+                    if ch_key is not None and invert_map.get(ch_key):
+                        pad = 6
+                        draw.rectangle((val_x - 2, val_y - 2, val_x + val_w + pad, val_y + val_h + 2), fill=0)
+                        draw.text((val_x, val_y), sel, font=value_font, fill=255)
+                    else:
+                        draw.text((side_x, y + title_h + gap), sel, font=value_font, fill=0)
                     if hasattr(value_font, 'getsize'):
                         val_h = value_font.getsize(sel)[1]
                     else:
@@ -492,7 +552,29 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                     except Exception:
                         t = title + ':'
                 draw.text((x, top_y), t, font=title_font, fill=0)
-                draw.text((x, top_y + title_h + gap), sel, font=value_font, fill=0)
+
+                # Draw value, possibly inverted if different from image source
+                val_x = x
+                val_y = top_y + title_h + gap
+                try:
+                    if hasattr(draw, 'textbbox'):
+                        vb = draw.textbbox((0, 0), sel, font=value_font)
+                        val_w = vb[2] - vb[0]
+                        val_h = vb[3] - vb[1]
+                    else:
+                        val_w, val_h = value_font.getsize(sel)
+                except Exception:
+                    val_w = max(10, len(sel) * (base_font_size // 2))
+                    val_h = base_font_size
+
+                ch = knob_order[i]
+                if invert_map.get(ch):
+                    pad = 6
+                    draw.rectangle((val_x - 2, val_y - 2, val_x + val_w + pad, val_y + val_h + 2), fill=0)
+                    draw.text((val_x, val_y), sel, font=value_font, fill=255)
+                else:
+                    draw.text((x, top_y + title_h + gap), sel, font=value_font, fill=0)
+
             except Exception:
                 draw.text((x, top_y), title, fill=0)
                 draw.text((x, top_y + title_h + gap), sel, fill=0)
