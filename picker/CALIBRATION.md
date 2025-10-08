@@ -88,10 +88,16 @@ voltage clusters that align with the expected ~0.3V per-step spacing:
 - `--settle-confirm`: 5 consecutive settled windows
 - `--settle-threshold`: 0.035 V
 - `--cluster-tol`: 0.12 V
+ - `--settle-window`: 0.6 s
+ - `--settle-confirm`: 6 consecutive settled windows
+ - `--settle-threshold`: 0.05 V
+ - `--cluster-tol`: 0.18 V
 
-These defaults mean you should hold each knob position for a couple of
-seconds while calibrating (roughly ~0.5s × 5 confirmations ≈ 2.5s). If you
-prefer faster calibration at the cost of some noise, tune the flags below.
+These defaults are very conservative: hold each knob position for several
+seconds while calibrating (roughly ~0.6s × 6 confirmations ≈ 3.6s). The result
+should be minimal spurious clusters and tidy, well-spaced voltage breakpoints.
+If you prefer faster calibration at the cost of more noise, tune the flags
+below.
 
 ## Advanced Options
 

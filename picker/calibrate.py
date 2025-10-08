@@ -307,14 +307,14 @@ def main():
                         help='Sampling rate in Hz (default: 50)')
     parser.add_argument('--vref', type=float, default=3.3,
                         help='Reference voltage (default: 3.3)')
-    parser.add_argument('--settle-window', type=float, default=0.5,
-                        help='Window size in seconds for stability detection (default: 0.5)')
-    parser.add_argument('--settle-threshold', type=float, default=0.035,
-                        help='Maximum voltage range to consider settled (default: 0.035)')
-    parser.add_argument('--cluster-tol', type=float, default=0.12,
-                        help='Voltage tolerance for clustering positions (default: 0.12)')
-    parser.add_argument('--settle-confirm', type=int, default=5,
-                        help='Number of consecutive settled windows required to confirm a position during calibration (default: 5). This only affects the calibration tool.')
+    parser.add_argument('--settle-window', type=float, default=0.6,
+                        help='Window size in seconds for stability detection (default: 0.6)')
+    parser.add_argument('--settle-threshold', type=float, default=0.05,
+                        help='Maximum voltage range to consider settled (default: 0.05)')
+    parser.add_argument('--cluster-tol', type=float, default=0.18,
+                        help='Voltage tolerance for clustering positions (default: 0.18)')
+    parser.add_argument('--settle-confirm', type=int, default=6,
+                        help='Number of consecutive settled windows required to confirm a position during calibration (default: 6). This only affects the calibration tool.')
     parser.add_argument('--adc-spi-port', type=int, default=0,
                         help='SPI port for ADC (default: 0)')
     parser.add_argument('--adc-spi-device', type=int, default=1,
