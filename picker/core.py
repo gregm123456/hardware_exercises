@@ -315,6 +315,42 @@ class PickerCore:
         if self.overlay_visible and self.current_knob is not None:
             ch_now = self.current_knob[0]
             last = self.last_activity_per_knob.get(ch_now, 0)
+
+            # Quick-path: if the user has physically moved the same knob but
+            # the mapping debounce hasn't yet reported a 'changed' event, read
+            # the raw ADC and map it directly to a position (no debounce).
+            # If it differs from the currently displayed position, process it
+            # immediately and refresh the last-activity timestamp so we don't
+            # prematurely time out while the user is interacting slowly.
+            try:
+                raw = None
+                try:
+                    raw = self.hw.read_raw(ch_now)
+                except Exception:
+                    raw = None
+                if raw is not None:
+                    try:
+                        mapper = getattr(self.hw, 'mappers', {}).get(ch_now)
+                        if mapper:
+                            immediate_pos = mapper.raw_to_pos(int(raw))
+                            # convert to display indexing (inverted)
+                            knob = self.texts.get(f"CH{ch_now}")
+                            values = knob.get('values', [""] * 12) if knob else [""] * 12
+                            display_immediate = max(0, min(len(values) - 1, (len(values) - 1) - immediate_pos))
+                            # If different from current displayed pos, process now
+                            if self.current_knob[1] != immediate_pos:
+                                logger.debug(f"Detected raw change on CH{ch_now} -> immediate_pos={immediate_pos}, updating overlay")
+                                # enqueue and refresh activity
+                                self._process_knob_update(ch_now, immediate_pos, time.time())
+                                self.last_activity_per_knob[ch_now] = time.time()
+                                # clear any pending update for this channel since we've handled it
+                                if ch_now in self.pending_updates:
+                                    del self.pending_updates[ch_now]
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
             if (time.time() - last) > self.overlay_timeout:
                 # Timeout: immediately return to the main screen without drawing
                 # an intermediate blank overlay which causes a visual bar.
