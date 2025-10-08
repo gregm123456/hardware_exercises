@@ -125,21 +125,15 @@ def main(argv=None):
         logger.error(f"Failed to initialize picker core: {e}")
         return 1
 
-    # Clear display first to remove any residual images
-    try:
-        logger.info("Clearing display at startup")
-        from picker.drivers.display_fast import clear_display
-        clear_display()
-        time.sleep(0.5)  # Give display time to clear
-    except Exception as e:
-        logger.warning(f"Initial display clear failed: {e}")
-
-    # Show a startup message for 2 seconds, then clear the screen
+    # Show a startup message for 2 seconds. The startup image is full-screen
+    # and the display driver performs a full update for 'auto' mode, so an
+    # explicit initial clear is redundant on most hardware and can be skipped
+    # to save time and extra flashes.
     try:
         logger.info("Displaying startup message")
         img = compose_message("Starting...", full_screen=(args.display_w, args.display_h))
         blit(img, "starting", rotate=(None if args.rotate == 'none' else args.rotate))
-        time.sleep(2.0)
+        time.sleep(1.0)
         # Directly show the main placeholder screen without an intermediate clear
         try:
             core.show_main()
