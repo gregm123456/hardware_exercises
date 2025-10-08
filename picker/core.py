@@ -121,6 +121,13 @@ class PickerCore:
         # text only updates when a new image is generated and associated with
         # the main image. It should contain the exact prompt/CSV used.
         self.last_image_source = None
+        # When True, suppress automatic main-screen redraws until a
+        # background generation finishes (or a timeout expires). This is
+        # used so the temporary "GO" screen remains visible until the
+        # newly-generated main content is available and blitted.
+        self._suppress_main = False
+        # Timestamp (epoch) until which suppression remains active.
+        self._suppress_main_until = 0.0
 
     def _display_worker(self):
         """Worker thread that processes the latest display job and drops older ones.
@@ -273,9 +280,25 @@ class PickerCore:
 
     def handle_go(self):
         logger.info("GO button pressed!")
-        # Immediately show GO message briefly
+        # Suppress automatic main redraws so the GO splash remains until the
+        # generated main image is available. Clear any queued display jobs so
+        # an older "main" job doesn't flash after the GO splash.
+        try:
+            with self._display_queue_lock:
+                self._display_queue.clear()
+        except Exception:
+            logger.debug("Could not clear display queue before GO (non-fatal)")
+
+        # Set suppression with a safety timeout to avoid permanent blocking
+        # if generation fails. 20s should be more than enough for a typical
+        # SD generation; adjust if necessary.
+        self._suppress_main = True
+        self._suppress_main_until = time.time() + 20.0
+
+        # Immediately show GO message briefly (synchronous blit)
         img = compose_message("GO!", full_screen=self.effective_display_size)
         blit(img, "go", rotate=self.rotate, mode='FAST')
+
         # GO overrides any overlay; clear overlay state
         self.overlay_visible = False
         self.current_knob = None
@@ -340,8 +363,22 @@ class PickerCore:
                         blit(img, "main", rotate=self.rotate, mode='auto')
                     except Exception:
                         logger.exception("Failed to blit generated main screen")
+                    finally:
+                        # Generation finished (success or not) - allow main redraws
+                        try:
+                            self._suppress_main = False
+                            self._suppress_main_until = 0.0
+                        except Exception:
+                            pass
                 except Exception:
                     logger.exception("Background SD image generation failed")
+                    # Ensure we don't permanently suppress main screen if
+                    # background generation failed early.
+                    try:
+                        self._suppress_main = False
+                        self._suppress_main_until = 0.0
+                    except Exception:
+                        pass
 
             t = threading.Thread(target=_bg_generate, name="sd-generate", daemon=True)
             t.start()
@@ -429,6 +466,19 @@ class PickerCore:
                     self.current_knob = None
 
         if not self.overlay_visible:
+            # If suppression is active (e.g. we've just shown GO and are
+            # waiting for generated content), skip automatic main redraws
+            # until suppression is cleared or the safety timeout expires.
+            if self._suppress_main:
+                if time.time() > self._suppress_main_until:
+                    # safety timeout expired - clear suppression so UI can
+                    # return to showing the last known main screen.
+                    logger.debug("GO suppression timed out; allowing main redraws")
+                    self._suppress_main = False
+                    self._suppress_main_until = 0.0
+                else:
+                    # Suppressed - do not redraw main now
+                    return
             # build a simple positions dict mapping ch->pos
             # invert positions for display so main screen matches knob overlay
             main_positions = {}
