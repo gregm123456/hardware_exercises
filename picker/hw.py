@@ -103,20 +103,27 @@ class KnobMapper:
             
         # Find the position by comparing against midpoints between calibrated values
         n = len(positions)
-        
+
+        # Determine the raw index (0..n-1) assuming positions are ascending
         # Handle edge cases
         if voltage <= positions[0]:
-            return 0
-        if voltage >= positions[-1]:
-            return min(n - 1, self.calib.positions - 1)
-            
-        # Find the appropriate bin using midpoint thresholds
-        for i in range(n - 1):
-            midpoint = (positions[i] + positions[i + 1]) / 2.0
-            if voltage < midpoint:
-                return min(i, self.calib.positions - 1)
-                
-        return min(n - 1, self.calib.positions - 1)
+            idx = 0
+        elif voltage >= positions[-1]:
+            idx = n - 1
+        else:
+            idx = 0
+            for i in range(n - 1):
+                midpoint = (positions[i] + positions[i + 1]) / 2.0
+                if voltage < midpoint:
+                    idx = i
+                    break
+
+        # If calibration indicates inverted mapping, reverse the index so that
+        # low voltages map to the bottom positions and high voltages to the top.
+        if self.calib.inverted:
+            idx = (n - 1) - idx
+
+        return min(idx, self.calib.positions - 1)
 
     def map(self, raw: int) -> Tuple[int, bool]:
         """Map a raw ADC value to a debounced position.

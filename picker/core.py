@@ -98,9 +98,14 @@ class PickerCore:
             knob = self.texts.get(key)
             title = knob.get("title", key) if knob else key
             values = knob.get("values", [""] * 12) if knob else [""] * 12
-            
-            logger.info(f"Knob change: CH{ch} -> position {pos} ('{title}')")
-            img = compose_overlay(title, values, pos, full_screen=self.effective_display_size)
+
+            # Invert the position for display so that low raw voltages appear
+            # at the bottom of the menu and higher voltages move the selection
+            # upward toward the top of the menu.
+            display_pos = max(0, min(len(values) - 1, (len(values) - 1) - pos))
+
+            logger.info(f"Knob change: CH{ch} -> position {pos} ('{title}'), display {display_pos}")
+            img = compose_overlay(title, values, display_pos, full_screen=self.effective_display_size)
             # Use FAST mode for knob overlays to avoid flicker
             blit(img, f"overlay_ch{ch}_pos{pos}", rotate=self.rotate, mode='FAST')
             
@@ -138,7 +143,13 @@ class PickerCore:
         """Compose and blit the main idle screen immediately using current HW positions."""
         try:
             positions = self.hw.read_positions()
-            main_positions = {ch: pos for ch, (pos, changed) in positions.items()}
+            # Build positions dict but invert indices for display to match overlay
+            main_positions = {}
+            for ch, (pos, changed) in positions.items():
+                knob = self.texts.get(f"CH{ch}")
+                values = knob.get('values', [""] * 12) if knob else [""] * 12
+                display_pos = max(0, min(len(values) - 1, (len(values) - 1) - pos))
+                main_positions[ch] = display_pos
             img = compose_main_screen(self.texts, main_positions, full_screen=self.effective_display_size)
             # Use auto mode for main screen to get proper grayscale rendering for images
             blit(img, "main", rotate=self.rotate, mode='auto')
@@ -209,7 +220,13 @@ class PickerCore:
 
         if not self.overlay_visible:
             # build a simple positions dict mapping ch->pos
-            main_positions = {ch: pos for ch, (pos, changed) in positions.items()}
+            # invert positions for display so main screen matches knob overlay
+            main_positions = {}
+            for ch, (pos, changed) in positions.items():
+                knob = self.texts.get(f"CH{ch}")
+                values = knob.get('values', [""] * 12) if knob else [""] * 12
+                display_pos = max(0, min(len(values) - 1, (len(values) - 1) - pos))
+                main_positions[ch] = display_pos
             # only redraw main screen if the selected positions changed
             if main_positions != self.last_main_positions:
                 try:
