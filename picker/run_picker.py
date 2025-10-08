@@ -12,8 +12,8 @@ import atexit
 from picker.hw import HW, SimulatedMCP3008, Calibration
 from picker.config import load_texts, DEFAULT_DISPLAY
 from picker.core import PickerCore
-from picker.ui import compose_message, compose_overlay
-from picker.drivers.display_fast import blit, clear_display, close
+from picker.ui import compose_message
+from picker.drivers.display_fast import init as display_init, blit, clear_display, close
 
 # Set up logging
 logging.basicConfig(
@@ -54,8 +54,10 @@ def main(argv=None):
     # Display startup message as soon as possible, before heavy init
     try:
         logger.info("Displaying startup message")
+        # Manually init the display for this one-off blit
+        display_init(spi_device=args.display_spi_device, force_simulation=args.force_simulation, rotate=(None if args.rotate == 'none' else args.rotate))
         img = compose_message("Starting...", full_screen=(args.display_w, args.display_h))
-        blit(img, "starting", rotate=(None if args.rotate == 'none' else args.rotate), spi_device=args.display_spi_device, force_simulation=args.force_simulation)
+        blit(img, "starting", rotate=(None if args.rotate == 'none' else args.rotate))
     except Exception as e:
         # If display or PIL fails, continue silently to the main loop
         logger.warning(f"Early startup display failed: {e} - continuing anyway")
