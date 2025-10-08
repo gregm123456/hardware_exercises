@@ -175,8 +175,7 @@ class PickerCore:
 
         now = time.time()
         
-        # Always update the pending state immediately - this captures the "landing" position
-        self.pending_updates[ch] = (pos, now)
+        # Update activity timestamp for this knob to reset its overlay timeout
         self.last_activity_per_knob[ch] = now
         
         # Immediately process the update (enqueue latest job). The display worker
@@ -221,10 +220,6 @@ class PickerCore:
             self.overlay_visible = True
             self.current_knob = (ch, pos)
             self.last_display_update = timestamp
-
-            # Clear this knob's pending update since we've enqueued it
-            if ch in self.pending_updates:
-                del self.pending_updates[ch]
 
         except Exception as e:
             logger.exception(f"Failed to enqueue knob update: {e}")
@@ -288,22 +283,8 @@ class PickerCore:
             if changed:
                 self.handle_knob_change(ch, pos)
 
-        # Process any pending updates if display is not busy and enough time has passed
-        now = time.time()
-        if not self.display_busy and (now - self.last_display_update) >= self.min_update_interval:
-            # Find the most recent pending update (prioritize latest change)
-            if self.pending_updates:
-                latest_ch = None
-                latest_time = 0
-                for ch, (pos, timestamp) in self.pending_updates.items():
-                    if timestamp > latest_time:
-                        latest_time = timestamp
-                        latest_ch = ch
-                
-                if latest_ch is not None:
-                    pos, timestamp = self.pending_updates[latest_ch]
-                    logger.debug(f"Processing pending update: CH{latest_ch} -> position {pos}")
-                    self._process_knob_update(latest_ch, pos, now)
+        # Since we now process knob changes immediately in handle_knob_change(),
+        # we no longer need separate pending update processing here.
 
         # buttons
         if buttons.get("GO"):
@@ -315,76 +296,19 @@ class PickerCore:
         if self.overlay_visible and self.current_knob is not None:
             ch_now = self.current_knob[0]
             last = self.last_activity_per_knob.get(ch_now, 0)
-
-            # Quick-path: if the user has physically moved the same knob but
-            # the mapping debounce hasn't yet reported a 'changed' event, read
-            # the raw ADC and map it directly to a position (no debounce).
-            # If it differs from the currently displayed position, process it
-            # immediately and refresh the last-activity timestamp so we don't
-            # prematurely time out while the user is interacting slowly.
-            try:
-                raw = None
-                try:
-                    raw = self.hw.read_raw(ch_now)
-                except Exception:
-                    raw = None
-                if raw is not None:
-                    try:
-                        mapper = getattr(self.hw, 'mappers', {}).get(ch_now)
-                        if mapper:
-                            immediate_pos = mapper.raw_to_pos(int(raw))
-                            # convert to display indexing (inverted)
-                            knob = self.texts.get(f"CH{ch_now}")
-                            values = knob.get('values', [""] * 12) if knob else [""] * 12
-                            display_immediate = max(0, min(len(values) - 1, (len(values) - 1) - immediate_pos))
-                            # If different from current displayed pos, process now
-                            if self.current_knob[1] != immediate_pos:
-                                logger.debug(f"Detected raw change on CH{ch_now} -> immediate_pos={immediate_pos}, updating overlay")
-                                # enqueue and refresh activity
-                                self._process_knob_update(ch_now, immediate_pos, time.time())
-                                self.last_activity_per_knob[ch_now] = time.time()
-                                # clear any pending update for this channel since we've handled it
-                                if ch_now in self.pending_updates:
-                                    del self.pending_updates[ch_now]
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
             if (time.time() - last) > self.overlay_timeout:
                 # Timeout: immediately return to the main screen without drawing
                 # an intermediate blank overlay which causes a visual bar.
                 logger.debug("Overlay timeout - returning to main screen (per-knob)")
                 try:
-                    # If a late knob change arrived for this same channel while we
-                    # were waiting for the timeout, prefer processing that update
-                    # instead of immediately returning to the main screen. This
-                    # avoids the UX where a user moves the knob just before the
-                    # timeout and then must wait for another timeout cycle.
-                    pending = self.pending_updates.get(ch_now)
-                    if pending:
-                        pos_pending, ts_pending = pending
-                        # If the pending update is newer than the last activity
-                        # (i.e. arrived during the idle window), process it now.
-                        if ts_pending > last:
-                            logger.debug(f"Late pending update detected for CH{ch_now} (pos={pos_pending}) - processing instead of clearing")
-                            # Process pending update (this enqueues overlay update)
-                            self._process_knob_update(ch_now, pos_pending, time.time())
-                        else:
-                            # show_main composes and blits the main screen (uses high-quality mode)
-                            self.show_main()
-                            self.overlay_visible = False
-                            self.current_knob = None
-                    else:
-                        # No pending update: proceed to show main screen
-                        self.show_main()
-                        self.overlay_visible = False
-                        self.current_knob = None
+                    # show_main composes and blits the main screen (uses high-quality mode)
+                    self.show_main()
                 except Exception:
                     # Fallback: if composing main fails, clear minimally
                     logger.exception("show_main failed during overlay timeout; falling back to clear")
                     img = compose_overlay("", [""] * 12, 0, full_screen=self.effective_display_size)
                     blit(img, "clear_overlay", rotate=self.rotate, mode='FAST')
+                finally:
                     self.overlay_visible = False
                     self.current_knob = None
 
