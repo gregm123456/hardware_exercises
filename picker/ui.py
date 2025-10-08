@@ -244,7 +244,7 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
     #  - bottom right:CH6
     #  - bottom left: CH2
     # So the top-to-bottom channel order alternates right/left: [0,4,5,1,6,2]
-    knob_order = [0, 4, 5, 1, 6, 2]
+    knob_order = [0, 4, 1, 5, 2, 6]
     entries = []
     for ch in knob_order:
         key = f"CH{ch}"
