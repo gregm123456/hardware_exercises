@@ -69,8 +69,9 @@ def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None
             logger.exception('Rotation failed, proceeding without rotation')
 
     # Always save a copy for debugging
-    tmp = OUT_DIR / f"{file_label}.png"
-    img_to_send.save(tmp)
+    # Note: previously we saved a copy to disk here for debugging. That disk
+    # I/O adds latency for interactive knob updates. We now keep the
+    # image in-memory and send it directly to the display driver.
     
     # Try to update the actual display with requested mode
     if _display:
@@ -86,9 +87,9 @@ def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None
             except Exception as e2:
                 logger.error(f"Fallback display update also failed: {e2}")
     else:
-        logger.warning("No display available - saved to file only")
+        logger.warning("No display available - image not sent to hardware (in-memory only)")
     
-    return tmp
+    return None
 
 
 def partial_update(_rect: Tuple[int, int, int, int]):
