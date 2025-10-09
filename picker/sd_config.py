@@ -14,7 +14,7 @@ IMAGE_PROMPT_SUFFIX = ""
 NEGATIVE_IMAGE_PROMPT = "white background, white wall, bad anatomy, watermark, text"
 
 # SD Web UI server URL (no trailing slash)
-SD_IMAGE_WEBUI_SERVER_URL = "http://192.168.4.108:7860"
+SD_IMAGE_WEBUI_SERVER_URL = "http://192.168.99.177:7860"
 
 # Stable Diffusion generation parameters (defaults)
 SD_STEPS = 7
