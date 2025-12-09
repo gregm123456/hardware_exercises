@@ -169,9 +169,22 @@ PYTHONPATH=. python picker/run_picker.py --simulate --display-w 800 --display-h 
 4) Run on-device (Raspberry Pi + hardware)
 
 Notes before running on a Pi:
-- Enable SPI in raspi-config
-- Install platform-specific extras: `spidev`, `RPi.GPIO` as required (see
-	`picker/requirements.txt` conditional deps)
+- Enable SPI in `raspi-config` (Interface Options -> SPI).
+- Ensure your user is in the `spi` and `gpio` groups:
+	```bash
+	sudo usermod -aG spi,gpio $USER
+	# Log out and back in for changes to take effect
+	```
+- Install platform-specific extras:
+	- **Raspberry Pi 5**: The standard `RPi.GPIO` library is not supported. Use `rpi-lgpio` instead:
+		```bash
+		pip uninstall RPi.GPIO
+		pip install rpi-lgpio spidev
+		```
+	- **Raspberry Pi 4 and earlier**:
+		```bash
+		pip install RPi.GPIO spidev
+		```
 
 Example (on a Pi):
 
