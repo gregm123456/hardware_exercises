@@ -144,18 +144,18 @@ def main(argv=None):
         # If display or PIL fails, continue silently to the main loop
         logger.warning(f"Startup display failed: {e} - continuing anyway")
 
-    def handle_sigint(sig, frame):
+    def handle_shutdown(sig, frame):
         logger.info('Stopping picker application...')
         core.running = False
         try:
             # try to blank the display before exiting
-            logger.info('Clearing display before exit (SIGINT)')
+            logger.info('Clearing display before exit')
             clear_display()
             # give the device a moment to finish any work (mirrors blank_screen.py)
             time.sleep(0.5)
             close()
         except Exception as e:
-            logger.debug(f'Error while clearing display on SIGINT: {e}')
+            logger.debug(f'Error while clearing display on exit: {e}')
         sys.exit(0)
 
     def _cleanup_display():
@@ -172,7 +172,8 @@ def main(argv=None):
     # Ensure cleanup runs on normal process exit
     atexit.register(_cleanup_display)
 
-    signal.signal(signal.SIGINT, handle_sigint)
+    signal.signal(signal.SIGINT, handle_shutdown)
+    signal.signal(signal.SIGTERM, handle_shutdown)
     
     try:
         core.run()

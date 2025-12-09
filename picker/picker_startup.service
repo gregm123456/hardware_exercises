@@ -1,0 +1,14 @@
+[Unit]
+Description=Picker Startup Service
+After=network.target
+
+[Service]
+Type=simple
+User=gregm
+WorkingDirectory=/home/gregm/hardware_exercises
+Environment=PYTHONPATH=/home/gregm/hardware_exercises:$PYTHONPATH
+ExecStart=/home/gregm/hardware_exercises/.venv/bin/python3 picker/run_picker.py --verbose
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

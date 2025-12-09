@@ -1,2 +1,2 @@
-export PYTHONPATH="${PYTHONPATH}:/home/notyou/hardware_exercises"
-PYTHONPATH="/home/notyou/hardware_exercises:$PYTHONPATH" /home/notyou/hardware_exercises/.venv/bin/python3 picker/run_picker.py --verbose
+export PYTHONPATH="${PYTHONPATH}:/home//hardware_exercises"
+PYTHONPATH="/home/gregm/hardware_exercises:$PYTHONPATH" /home/gregm/hardware_exercises/.venv/bin/python3 picker/run_picker.py --verbose
