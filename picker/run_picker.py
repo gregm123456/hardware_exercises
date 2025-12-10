@@ -38,6 +38,7 @@ def main(argv=None):
     p.add_argument("--rotate", choices=['CW','CCW','flip','none'], default='CW', help="Rotate display output: CW, CCW, flip, or none")
     p.add_argument("--force-simulation", action="store_true", help="Force display simulation mode")
     p.add_argument("--verbose", action="store_true", help="Enable debug logging")
+    p.add_argument("--generation-mode", choices=['txt2img', 'img2img'], default='txt2img', help="Generation mode: txt2img (default) or img2img")
     p.add_argument("--calibration", type=str, help="Path to knob calibration JSON file")
     p.add_argument("--run-calibrator", action="store_true",
                    help="Run the interactive calibrator before starting the picker (passes through settle-confirm)")
@@ -118,7 +119,8 @@ def main(argv=None):
             display_size=(args.display_w, args.display_h),
             spi_device=args.display_spi_device,
             force_simulation=args.force_simulation,
-            rotate=(None if args.rotate == 'none' else args.rotate)
+            rotate=(None if args.rotate == 'none' else args.rotate),
+            generation_mode=args.generation_mode
         )
         logger.info("Picker core initialized")
     except Exception as e:

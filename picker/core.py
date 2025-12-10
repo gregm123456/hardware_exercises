@@ -8,6 +8,8 @@ import time
 import concurrent.futures
 import threading
 import logging
+import subprocess
+import base64
 from typing import Dict, Tuple
 
 from picker.hw import HW
@@ -20,10 +22,11 @@ logger = logging.getLogger(__name__)
 
 
 class PickerCore:
-    def __init__(self, hw: HW, texts: Dict = None, display_size: Tuple[int, int] = (1024, 600), spi_device=0, force_simulation=False, rotate: str = 'CW'):
+    def __init__(self, hw: HW, texts: Dict = None, display_size: Tuple[int, int] = (1024, 600), spi_device=0, force_simulation=False, rotate: str = 'CW', generation_mode: str = 'txt2img'):
         self.hw = hw
         self.texts = texts or load_texts()
         self.display_size = display_size
+        self.generation_mode = generation_mode
         # If rotation will be applied, compose UI using the rotated dimensions
         if rotate in ('CW', 'CCW'):
             # swap width/height so composition matches final orientation
@@ -354,6 +357,15 @@ class PickerCore:
                 # the background thread composes the final main screen using
                 # the same knob selections that existed when GO was pressed.
                 prompt = f"{sd_config.IMAGE_PROMPT_PREFIX}{knob_csv}{sd_config.IMAGE_PROMPT_SUFFIX}"
+                init_image = None
+                if self.generation_mode == 'img2img':
+                    try:
+                        subprocess.run(['python3', 'picker/capture_still.py'], check=True, cwd='/home/gregm/hardware_exercises')
+                        with open('/home/gregm/hardware_exercises/still.png', 'rb') as f:
+                            img_data = f.read()
+                        init_image = base64.b64encode(img_data).decode('utf-8')
+                    except Exception as e:
+                        logger.warning(f"Failed to capture image for img2img: {e}, falling back to txt2img")
                 try:
                     sd_client.generate_image(prompt, output_path=sd_config.DEFAULT_OUTPUT_PATH, overrides={
                         'steps': sd_config.SD_STEPS,
@@ -363,7 +375,7 @@ class PickerCore:
                         'sampler_name': sd_config.SD_SAMPLER_NAME,
                         'n_iter': sd_config.SD_N_ITER,
                         'batch_size': sd_config.SD_BATCH_SIZE,
-                    })
+                    }, mode=self.generation_mode, init_image=init_image)
                     # After generation, set the last_image_source to the prompt
                     # (or a concise knob CSV) so the UI annotation will match the
                     # image that was generated. Then request immediate main

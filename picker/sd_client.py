@@ -3,6 +3,7 @@ import urllib.request
 import base64
 import os
 import time
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -10,6 +11,8 @@ from PIL import Image
 from io import BytesIO
 
 import picker.sd_config as sd_config
+
+logger = logging.getLogger(__name__)
 
 
 def _timestamp():
@@ -56,7 +59,7 @@ def _call_api(endpoint: str, payload: dict, base_url: Optional[str] = None) -> d
         return json.loads(resp.read().decode('utf-8'))
 
 
-def generate_image(prompt: str, output_path: Optional[str] = None, overrides: dict = None) -> str:
+def generate_image(prompt: str, output_path: Optional[str] = None, overrides: dict = None, mode: str = 'txt2img', init_image: Optional[str] = None) -> str:
     """Generate an image via SD Web UI txt2img and save the first result as a PNG.
 
     Returns the path to the saved PNG. Raises exceptions on network/API errors.
@@ -77,9 +80,57 @@ def generate_image(prompt: str, output_path: Optional[str] = None, overrides: di
         "batch_size": overrides.get('batch_size', sd_config.SD_BATCH_SIZE),
     }
 
-    resp = _call_api('sdapi/v1/txt2img', payload)
-    images = resp.get('images') or []
+    if mode == 'img2img' and init_image:
+        payload["mode"] = "img2img"
+        payload["init_image"] = init_image
+        endpoint = 'generate'
+        logger.debug(f"Using img2img mode with endpoint: {endpoint}")
+    else:
+        payload["mode"] = "txt2img"
+        endpoint = 'generate'
+        logger.debug(f"Using txt2img mode with endpoint: {endpoint}")
+
+    # Log endpoint and safe payload metadata (don't dump large base64 strings)
+    logger.debug(f"Calling API endpoint: {endpoint}")
+    try:
+        init_len = len(payload.get('init_image')) if payload.get('init_image') else 0
+    except Exception:
+        init_len = 0
+    logger.debug(f"Payload keys: {list(payload.keys())}; init_image_length={init_len}")
+
+    resp = _call_api(endpoint, payload)
+    logger.debug(f"API response keys: {list(resp.keys())}")
+    # If the backend returns a single base64 image, don't log the full string; log its length instead
+    if resp.get('image'):
+        try:
+            logger.debug(f"Response single 'image' length: {len(resp.get('image'))}")
+        except Exception:
+            logger.debug("Response single 'image' present (length unknown)")
+    if resp.get('base64'):
+        try:
+            logger.debug(f"Response single 'base64' length: {len(resp.get('base64'))}")
+        except Exception:
+            logger.debug("Response single 'base64' present (length unknown)")
+    if isinstance(resp.get('images'), list):
+        try:
+            lengths = [len(x) if isinstance(x, str) else 0 for x in resp.get('images')]
+            logger.debug(f"Response 'images' lengths: {lengths}")
+        except Exception:
+            logger.debug("Response 'images' present but lengths unavailable")
+    # Support backends that return either an 'images' list (standard) or a
+    # single 'image' field with a base64 string. Normalize to a list.
+    images = []
+    if isinstance(resp.get('images'), list) and resp.get('images'):
+        images = resp.get('images')
+    elif resp.get('image'):
+        # Some backends return the single image as 'image' (base64 string)
+        images = [resp.get('image')]
+    elif resp.get('base64'):
+        # Some backends return the single image as 'base64' (base64 string)
+        images = [resp.get('base64')]
+
     if not images:
+        logger.error(f"No images in response. Response: {resp}")
         raise RuntimeError('No images returned from SD API')
 
     # Use first image; decode base64 and save as PNG using Pillow to ensure proper
