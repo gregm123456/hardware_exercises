@@ -22,6 +22,8 @@ Highlights
 ----------
 - Stable knob mapping with per-knob calibration to avoid oscillation between adjacent
 	detents.
+- Supports both `txt2img` and `img2img` generation modes. In `img2img` mode, the GO
+	action captures a camera still to use as the initial image.
 - Display abstraction that supports several backends: update_waveshare, IT8951 Python
 	package, a basic SPI implementation, and a simulated display used for development.
 - A minimal core loop that polls HW, composes overlay images with Pillow, and pushes
@@ -38,6 +40,10 @@ Top-level files (important ones):
 	parameters. Contains `load_texts()` which validates the JSON structure (each knob has
 	12 values).
 - `mcp3008_calibration.json` — an example calibration file produced by the calibrator.
+- `picker_startup.service` / `picker_camera_still_startup.service` — systemd service
+	files for running the picker on boot (standard vs img2img modes).
+- `README_picker_startup.md` / `README_picker_camera_still_startup.md` — setup
+	instructions for the systemd services.
 
 Core modules (package `picker/`):
 
@@ -126,7 +132,12 @@ Design and implementation details
 
 3) Image handling (Stable Diffusion + e-paper)
 
-- When GO is pressed, `core.py` may call into `sd_client.generate_image()` which
+- The picker supports two generation modes: `txt2img` (default) and `img2img`.
+- In `txt2img` mode, the selected knob values are used to construct a prompt for
+	generation.
+- In `img2img` mode, the GO action first captures a still image from a connected camera
+	(using `capture_still.py`) and then sends it along with the prompt to the SD server.
+- When GO is pressed, `core.py` calls into `sd_client.generate_image()` which
 	interacts with a Stable Diffusion Web UI server and writes a PNG image locally.
 - SD images are adjusted with `_apply_gamma(img, gamma)` to brighten midtones and
 	preserve dynamic range on monochrome/greyscale e-paper. The default gamma is in
@@ -193,6 +204,12 @@ Example (on a Pi):
 ```bash
 # use appropriate venv with platform-specific packages installed
 PYTHONPATH=. python picker/run_picker.py --display-w 1448 --display-h 1072 --display-spi-device 0
+```
+
+To run in `img2img` mode:
+
+```bash
+PYTHONPATH=. python picker/run_picker.py --generation-mode img2img --display-w 1448 --display-h 1072
 ```
 
 Calibration
