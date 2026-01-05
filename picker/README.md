@@ -131,6 +131,8 @@ Design and implementation details
 - SD images are adjusted with `_apply_gamma(img, gamma)` to brighten midtones and
 	preserve dynamic range on monochrome/greyscale e-paper. The default gamma is in
 	`sd_config.EPAPER_GAMMA` (1.8 by default).
+- Generation parameters like `SD_STEPS`, `SD_CFG_SCALE`, and `SD_DENOISING_STRENGTH`
+	(used for img2img mode) are configured in `sd_config.py`.
 
 4) Performance considerations
 

@@ -373,6 +373,7 @@ class PickerCore:
                         'height': sd_config.SD_HEIGHT,
                         'cfg_scale': sd_config.SD_CFG_SCALE,
                         'sampler_name': sd_config.SD_SAMPLER_NAME,
+                        'denoising_strength': sd_config.SD_DENOISING_STRENGTH,
                         'n_iter': sd_config.SD_N_ITER,
                         'batch_size': sd_config.SD_BATCH_SIZE,
                     }, mode=self.generation_mode, init_image=init_image)

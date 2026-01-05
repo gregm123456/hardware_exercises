@@ -76,6 +76,7 @@ def generate_image(prompt: str, output_path: Optional[str] = None, overrides: di
         "height": overrides.get('height', sd_config.SD_HEIGHT),
         "cfg_scale": overrides.get('cfg_scale', sd_config.SD_CFG_SCALE),
         "sampler_name": overrides.get('sampler_name', sd_config.SD_SAMPLER_NAME),
+        "denoising_strength": overrides.get('denoising_strength', getattr(sd_config, 'SD_DENOISING_STRENGTH', 0.75)),
         "n_iter": overrides.get('n_iter', sd_config.SD_N_ITER),
         "batch_size": overrides.get('batch_size', sd_config.SD_BATCH_SIZE),
     }

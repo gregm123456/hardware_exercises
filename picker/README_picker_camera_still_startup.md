@@ -33,27 +33,35 @@ To install the picker camera still service as a systemd service:
 ## Service Management
 
 Check the status of the service:
-```
+```bash
 sudo systemctl status picker_camera_still_startup
 ```
 
 View logs:
-```
+```bash
 sudo journalctl -u picker_camera_still_startup -f
 ```
 
 Stop the service:
-```
+```bash
 sudo systemctl stop picker_camera_still_startup
 ```
 
 Disable the service (prevent auto-start on boot):
-```
+```bash
 sudo systemctl disable picker_camera_still_startup
 ```
 
 ## Configuration
 
+### Image Generation Tuning
+The img2img generation behavior can be tuned in `picker/sd_config.py`. Key parameters include:
+
+- `SD_DENOISING_STRENGTH`: Controls how much the generated image deviates from the captured camera still. A value of `0.5` (default) provides a balance between following the original structure and applying the prompt.
+- `SD_STEPS`, `SD_CFG_SCALE`: Standard Stable Diffusion generation parameters.
+- `EPAPER_GAMMA`: Adjusts the brightness of the generated image for better visibility on e-paper displays.
+
+### Service Settings
 The service runs the picker with the following settings:
 - User: gregm
 - Working Directory: /home/gregm/hardware_exercises
