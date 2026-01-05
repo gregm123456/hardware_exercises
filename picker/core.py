@@ -10,6 +10,8 @@ import threading
 import logging
 import subprocess
 import base64
+import io
+import sys
 from typing import Dict, Tuple
 
 from picker.hw import HW
@@ -50,6 +52,16 @@ class PickerCore:
         # track last-main view to avoid redundant blits
         self.last_main_positions = {}
         self.running = False
+
+        # Camera manager for img2img mode
+        self.camera_manager = None
+        if self.generation_mode == 'img2img':
+            try:
+                from picker.capture_still import CameraManager
+                logger.info("Initializing camera for img2img mode...")
+                self.camera_manager = CameraManager()
+            except Exception as e:
+                logger.error(f"Failed to initialize camera: {e}")
 
         # Display worker queue and thread (drop-old behaviour)
         # _display_queue holds tuples (tag, PIL.Image, rotate, mode)
@@ -358,12 +370,17 @@ class PickerCore:
                 # the same knob selections that existed when GO was pressed.
                 prompt = f"{sd_config.IMAGE_PROMPT_PREFIX}{knob_csv}{sd_config.IMAGE_PROMPT_SUFFIX}"
                 init_image = None
-                if self.generation_mode == 'img2img':
+                if self.generation_mode == 'img2img' and self.camera_manager:
                     try:
-                        subprocess.run(['python3', 'picker/capture_still.py'], check=True, cwd='/home/gregm/hardware_exercises')
-                        with open('/home/gregm/hardware_exercises/still.png', 'rb') as f:
-                            img_data = f.read()
-                        init_image = base64.b64encode(img_data).decode('utf-8')
+                        logger.info("Capturing camera still for img2img...")
+                        img = self.camera_manager.capture_still()
+                        
+                        # Convert PIL image to base64
+                        buffered = io.BytesIO()
+                        img.save(buffered, format="PNG")
+                        init_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                        # Also save to disk for debugging/reference as before
+                        img.save('/home/gregm/hardware_exercises/still.png')
                     except Exception as e:
                         logger.warning(f"Failed to capture image for img2img: {e}, falling back to txt2img")
                 try:
@@ -638,6 +655,14 @@ class PickerCore:
                     break
         finally:
             self.running = False
+            # Stop camera if active
+            if self.camera_manager:
+                try:
+                    logger.info("Stopping camera...")
+                    self.camera_manager.stop()
+                except Exception as e:
+                    logger.warning(f"Error stopping camera: {e}")
+
             # Stop display worker thread and wait for it to finish
             try:
                 self._display_thread_stop = True

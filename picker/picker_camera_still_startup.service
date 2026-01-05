@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=gregm
 WorkingDirectory=/home/gregm/hardware_exercises
-Environment=PYTHONPATH=/home/gregm/hardware_exercises:$PYTHONPATH
+Environment=PYTHONPATH=/home/gregm/hardware_exercises:/usr/lib/python3/dist-packages
 ExecStart=/home/gregm/hardware_exercises/.venv/bin/python3 picker/run_picker.py --generation-mode img2img --verbose
 Restart=always
 
