@@ -188,6 +188,12 @@ Notes before running on a Pi:
 	sudo usermod -aG spi,gpio $USER
 	# Log out and back in for changes to take effect
 	```
+- **Camera setup for img2img mode**: If using an Arducam Pivariety camera, you need to create a camera tuning file symlink. The Raspberry Pi libcamera package doesn't include the required `arducam-pivariety.json` tuning file by default. Run the provided setup script to create the necessary symlink and make it persistent across updates:
+	```bash
+	chmod +x picker/setup_camera_tuning.sh
+	sudo ./picker/setup_camera_tuning.sh
+	```
+	This script backs up the working `arducam_64mp.json` tuning file, creates the required symlink, and configures systemd to restore it automatically after system updates. Without this setup, img2img mode will fail with camera initialization errors.
 - Install platform-specific extras:
 	- **Raspberry Pi 5**: The standard `RPi.GPIO` library is not supported. Use `rpi-lgpio` instead:
 		```bash
@@ -262,6 +268,7 @@ Files of interest (quick map)
 - `picker/core.py` — app state machine / event loop
 - `picker/sd_client.py`, `picker/sd_config.py` — Stable Diffusion client and defaults
 - `picker/drivers/` — display drivers and factory
+- `picker/setup_camera_tuning.sh` — setup script for Arducam Pivariety camera tuning file
 - `picker/mcp3008_calibration.json` — sample calibration file
 
 Contact and license
