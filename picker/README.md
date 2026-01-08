@@ -275,3 +275,34 @@ Contact and license
 -------------------
 See top-level repository `LICENSE` and project `README.md` for licensing and broader
 project context.
+
+**Systemd drop-in for tmpfiles (required on some systems)**
+
+On some installations libcamera may attempt to load camera tuning files before
+`systemd-tmpfiles` has created symlinks or restored files configured via
+`/etc/tmpfiles.d`. This can cause camera initialization to fail at boot. To avoid
+that race, install the provided systemd drop-in which makes the picker service
+wait for tmpfiles to be processed.
+
+Files added to the project:
+- `picker/systemd/tmpfiles.conf` — drop-in template to be installed under:
+	`/etc/systemd/system/picker_camera_still_startup.service.d/tmpfiles.conf`
+- `picker/install_systemd_dropin.sh` — helper script to install the drop-in and
+	reload systemd (run with `sudo`).
+
+Installation (on the target machine):
+
+```bash
+# make installer executable (one-time)
+chmod +x picker/install_systemd_dropin.sh
+
+# run installer as root to place the drop-in and reload systemd
+sudo ./picker/install_systemd_dropin.sh
+
+# verify service
+sudo systemctl status picker_camera_still_startup.service --no-pager
+```
+
+The installer copies the drop-in, reloads systemd, and restarts the picker
+service. This ensures `/etc/tmpfiles.d/arducam-pivariety.conf` (created by the
+camera tuning setup) is applied before the picker service starts.
