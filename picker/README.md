@@ -276,19 +276,22 @@ Contact and license
 See top-level repository `LICENSE` and project `README.md` for licensing and broader
 project context.
 
-**Systemd drop-in for tmpfiles (required on some systems)**
+**Systemd drop-in for tmpfiles (required to prevent boot races)**
 
-On some installations libcamera may attempt to load camera tuning files before
-`systemd-tmpfiles` has created symlinks or restored files configured via
-`/etc/tmpfiles.d`. This can cause camera initialization to fail at boot. To avoid
-that race, install the provided systemd drop-in which makes the picker service
-wait for tmpfiles to be processed.
+On some systems, libcamera may attempt to load camera tuning files before 
+`systemd-tmpfiles` has fully created the symlinks or restored files configured in 
+`/etc/tmpfiles.d`. This results in a critical race condition where the service 
+fails with a `zlib decompression` error (or `incorrect header check`) because it 
+tries to read a missing or partially formed symlink.
+
+To fix this reliably, we use a systemd drop-in that promotes the dependency to 
+a hard `Requires`, ensuring the picker service only starts after 
+`systemd-tmpfiles-setup.service` has completed.
 
 Files added to the project:
-- `picker/systemd/tmpfiles.conf` — drop-in template to be installed under:
+- `picker/systemd/tmpfiles.conf` — drop-in template (now uses `Requires`) to be installed under:
 	`/etc/systemd/system/picker_camera_still_startup.service.d/tmpfiles.conf`
-- `picker/install_systemd_dropin.sh` — helper script to install the drop-in and
-	reload systemd (run with `sudo`).
+- `picker/install_systemd_dropin.sh` — helper installer script.
 
 Installation (on the target machine):
 
