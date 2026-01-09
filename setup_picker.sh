@@ -7,8 +7,17 @@ echo "=== Setting up Picker environment on Raspberry Pi ==="
 # Check if we're in a virtual environment
 if [[ "$VIRTUAL_ENV" == "" ]]; then
     echo "❌ No virtual environment active!"
-    echo "Please run: source .venv/bin/activate"
+    echo "On Raspberry Pi 5, please create one with system site packages:"
+    echo "  python -m venv .venv --system-site-packages"
+    echo "  source .venv/bin/activate"
     exit 1
+fi
+
+# Detect Pi 5
+if grep -q "Raspberry Pi 5" /proc/device-tree/model 2>/dev/null; then
+    echo "🚀 Raspberry Pi 5 detected. Ensuring hardware compatibility..."
+    # Uninstall conflicting venv packages to use system versions
+    pip uninstall -y RPi.GPIO spidev 2>/dev/null
 fi
 
 echo "✓ Virtual environment: $VIRTUAL_ENV"

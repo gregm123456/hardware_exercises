@@ -71,6 +71,22 @@ The service runs the picker with the following settings:
 
 ## Notes
 
+### Raspberry Pi 5 Special Requirements
+If running on a Raspberry Pi 5, the following additional steps are required for the camera and display to function:
+
+1. **Venv Creation**: The virtual environment must be created with `--system-site-packages` to allow access to the system-level `libcamera` and Pi 5-compatible `RPi.GPIO` packages.
+   ```bash
+   python -m venv .venv --system-site-packages
+   ```
+2. **Camera Tuning**: Arducam modules require a tuning file to be present. Use the provided setup script:
+   ```bash
+   ./setup_camera_tuning.sh
+   # And ensure the tmpfiles config is installed
+   sudo cp picker/systemd/tmpfiles.conf /etc/tmpfiles.d/arducam.conf
+   sudo systemd-tmpfiles --create /etc/tmpfiles.d/arducam.conf
+   ```
+3. **Infinite Restart Policy**: The provided service file is configured to restart indefinitely (`StartLimitIntervalSec=0`). This is necessary on Pi 5 to handle race conditions during boot-time hardware initialization.
+
 - Ensure the virtual environment at `/home/gregm/hardware_exercises/.venv` is properly set up
 - The service assumes the hardware (SPI devices, camera, etc.) is available at startup
 - Check system logs if the service fails to start due to hardware issues

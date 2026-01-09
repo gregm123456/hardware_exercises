@@ -44,6 +44,14 @@ Top-level files (important ones):
 	files for running the picker on boot (standard vs img2img modes).
 - `README_picker_startup.md` / `README_picker_camera_still_startup.md` — setup
 	instructions for the systemd services.
+- `setup_camera_tuning.sh` — helper to ensure the Arducam tuning JSON is correctly
+	linked. This is required for `libcamera` to function with specific modules.
+
+### Raspberry Pi 5 Service Notes
+When running as a service on Pi 5:
+- **Infinite Restarts**: Ensure your `.service` file uses `StartLimitIntervalSec=0` in the `[Unit]` section to allow the service to recover from hardware initialization races.
+- **Python Path**: If installing in a venv with system-site-packages, set `Environment=PYTHONPATH=/home/gregm/hardware_exercises` (or your project root) in the `[Service]` section.
+- **Tuning Files**: The Arducam tuning file (`arducam-pivariety.json`) must be available at `/usr/share/libcamera/ipa/rpi/vc4/` (or symlinked). Use `picker/systemd/tmpfiles.conf` to manage this persistently across reboots.
 
 Core modules (package `picker/`):
 

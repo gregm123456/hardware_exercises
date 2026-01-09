@@ -99,6 +99,23 @@ Notes about partial updates and VCOM
 
 ## Hardware setup notes
 
+### Raspberry Pi 5 Support (Crucial)
+The Raspberry Pi 5 uses a new hardware architecture (RP1 chipset) that requires specific handling for GPIO and SPI:
+
+1. **Environment**: Create your virtual environment with `--system-site-packages` to access the Pi 5-specific `RPi.GPIO` and `libcamera` bindings provided by the OS:
+   ```bash
+   python -m venv .venv --system-site-packages
+   ```
+2. **Avoid Conflicts**: Do **not** install `RPi.GPIO` or `spidev` inside the venv via pip. These generic versions are incompatible with Pi 5. If they are already there, uninstall them:
+   ```bash
+   pip uninstall RPi.GPIO spidev
+   ```
+3. **IT8951 Build**: Rebuild the driver C-extensions whenever you change Python versions:
+   ```bash
+   cd IT8951 && pip install -e .
+   ```
+
+### General Setup
 - Enable SPI on single-board computers (Raspberry Pi `raspi-config` -> SPI).
 - Ensure the running user is in `spi` and `gpio` groups if applicable:
 
