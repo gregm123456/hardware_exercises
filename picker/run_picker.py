@@ -44,6 +44,8 @@ def main(argv=None):
                    help="Run the interactive calibrator before starting the picker (passes through settle-confirm)")
     p.add_argument("--calibrate-settle-confirm", type=int, default=None,
                    help="When running the calibrator via --run-calibrator, pass this as --settle-confirm to the calibrator. If omitted the calibrator default is used.")
+    p.add_argument("--stream", action="store_true", help="Enable live camera MJPEG stream")
+    p.add_argument("--stream-port", type=int, default=8088, help="Port for live camera stream (default 8088)")
     args = p.parse_args(argv)
     
     if args.verbose:
@@ -120,9 +122,33 @@ def main(argv=None):
             spi_device=args.display_spi_device,
             force_simulation=args.force_simulation,
             rotate=(None if args.rotate == 'none' else args.rotate),
-            generation_mode=args.generation_mode
+            generation_mode=args.generation_mode,
+            stream=args.stream,
+            stream_port=args.stream_port
         )
         logger.info("Picker core initialized")
+        
+        if args.stream:
+            if core.camera_manager and getattr(core.camera_manager, "stream_port", None):
+                port = core.camera_manager.stream_port
+                import socket
+                try:
+                    # Try to get the local IP address
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.settimeout(0)
+                    try:
+                        # doesn't even have to be reachable
+                        s.connect(('10.254.254.254', 1))
+                        ip = s.getsockname()[0]
+                    except Exception:
+                        ip = '127.0.0.1'
+                    finally:
+                        s.close()
+                    logger.info(f"LIVE STREAM AVAILABLE AT: http://{ip}:{port}/stream.mjpg")
+                except Exception:
+                    logger.info(f"Live stream enabled on port {port} (IP unknown)")
+            else:
+                logger.warning("Live stream was requested, but the MJPEG server did not start. Check earlier camera logs.")
     except Exception as e:
         logger.error(f"Failed to initialize picker core: {e}")
         return 1

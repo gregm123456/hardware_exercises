@@ -24,6 +24,8 @@ Highlights
 	detents.
 - Supports both `txt2img` and `img2img` generation modes. In `img2img` mode, the GO
 	action captures a camera still to use as the initial image.
+- **Live Stream**: Supports MJPEG video streaming of the camera view in parallel with
+    operation. Use the `--stream` flag to enable it (default port 8000).
 - Display abstraction that supports several backends: update_waveshare, IT8951 Python
 	package, a basic SPI implementation, and a simulated display used for development.
 - A minimal core loop that polls HW, composes overlay images with Pillow, and pushes
@@ -225,6 +227,27 @@ To run in `img2img` mode:
 ```bash
 PYTHONPATH=. python picker/run_picker.py --generation-mode img2img --display-w 1448 --display-h 1072
 ```
+
+Live Camera Streaming
+---------------------
+The Picker supports a live MJPEG stream of the camera view, which can be viewed in a web browser or embedded in another application.
+
+1) Enable the stream:
+   ```bash
+   PYTHONPATH=. python picker/run_picker.py --stream --stream-port 8000
+   ```
+   *Note: This works regardless of the `--generation-mode` setting. If enabled, the camera stays active to provide the live view.*
+
+2) View the stream:
+   - Direct link: `http://<RASPBERRY_PI_IP>:8000/stream.mjpg`
+   - Interactive preview: Open `picker/stream_preview.html` in your browser. You can enter the Pi's IP address in the UI to connect.
+
+3) Embedding the stream:
+   You can embed the 512x512 square stream in any HTML page with:
+   ```html
+   <img src="http://<RASPBERRY_PI_IP>:8000/stream.mjpg" width="512" height="512">
+   ```
+   The camera uses hardware-level `scaler_crop` to provide a centered square view of the full sensor height, perfectly matching the input requirements for Stable Diffusion.
 
 Calibration
 -----------

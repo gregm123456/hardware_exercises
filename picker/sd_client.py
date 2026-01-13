@@ -84,12 +84,14 @@ def generate_image(prompt: str, output_path: Optional[str] = None, overrides: di
     if mode == 'img2img' and init_image:
         payload["mode"] = "img2img"
         payload["init_image"] = init_image
+        # Try both formats (some proxies expect plural list)
+        payload["init_images"] = [init_image]
         endpoint = 'generate'
-        logger.debug(f"Using img2img mode with endpoint: {endpoint}")
+        logger.info(f"Using img2img mode (init_image length: {len(init_image)})")
     else:
         payload["mode"] = "txt2img"
         endpoint = 'generate'
-        logger.debug(f"Using txt2img mode with endpoint: {endpoint}")
+        logger.info("Using txt2img mode")
 
     # Log endpoint and safe payload metadata (don't dump large base64 strings)
     logger.debug(f"Calling API endpoint: {endpoint}")

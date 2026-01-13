@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class PickerCore:
-    def __init__(self, hw: HW, texts: Dict = None, display_size: Tuple[int, int] = (1024, 600), spi_device=0, force_simulation=False, rotate: str = 'CW', generation_mode: str = 'txt2img'):
+    def __init__(self, hw: HW, texts: Dict = None, display_size: Tuple[int, int] = (1024, 600), spi_device=0, force_simulation=False, rotate: str = 'CW', generation_mode: str = 'txt2img', stream=False, stream_port=8088):
         self.hw = hw
         self.texts = texts or load_texts()
         self.display_size = display_size
@@ -52,14 +52,17 @@ class PickerCore:
         # track last-main view to avoid redundant blits
         self.last_main_positions = {}
         self.running = False
+        self.stream_port = stream_port
 
         # Camera manager for img2img mode
         self.camera_manager = None
-        if self.generation_mode == 'img2img':
+        if self.generation_mode == 'img2img' or stream:
             try:
                 from picker.capture_still import CameraManager
-                logger.info("Initializing camera for img2img mode...")
-                self.camera_manager = CameraManager()
+                logger.info(f"Initializing camera (stream={stream}, port={stream_port})...")
+                self.camera_manager = CameraManager(stream=stream, port=stream_port)
+                if getattr(self.camera_manager, "stream_port", None):
+                    self.stream_port = self.camera_manager.stream_port
             except Exception as e:
                 logger.error(f"Failed to initialize camera: {e}")
 
@@ -370,19 +373,29 @@ class PickerCore:
                 # the same knob selections that existed when GO was pressed.
                 prompt = f"{sd_config.IMAGE_PROMPT_PREFIX}{knob_csv}{sd_config.IMAGE_PROMPT_SUFFIX}"
                 init_image = None
-                if self.generation_mode == 'img2img' and self.camera_manager:
-                    try:
-                        logger.info("Capturing camera still for img2img...")
-                        img = self.camera_manager.capture_still()
-                        
-                        # Convert PIL image to base64
-                        buffered = io.BytesIO()
-                        img.save(buffered, format="PNG")
-                        init_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
-                        # Also save to disk for debugging/reference as before
-                        img.save('/home/gregm/hardware_exercises/still.png')
-                    except Exception as e:
-                        logger.warning(f"Failed to capture image for img2img: {e}, falling back to txt2img")
+                if self.generation_mode == 'img2img':
+                    if self.camera_manager:
+                        try:
+                            logger.info("Capturing camera still for img2img...")
+                            img = self.camera_manager.capture_still()
+                            
+                            # Convert PIL image to base64
+                            buffered = io.BytesIO()
+                            img.save(buffered, format="PNG")
+                            init_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                            logger.info(f"Image base64-encoded (length: {len(init_image)})")
+                            
+                            # Also save to disk for debugging/reference as before
+                            try:
+                                img.save('/home/gregm/hardware_exercises/still.png')
+                                logger.info("Saved latest camera still to /home/gregm/hardware_exercises/still.png")
+                            except Exception as e:
+                                logger.warning(f"Failed to save still.png for debug: {e}")
+                        except Exception as e:
+                            logger.error(f"Failed to capture image for img2img: {e}, falling back to txt2img")
+                    else:
+                        logger.warning("Generation mode is img2img but camera_manager is None!")
+
                 try:
                     sd_client.generate_image(prompt, output_path=sd_config.DEFAULT_OUTPUT_PATH, overrides={
                         'steps': sd_config.SD_STEPS,

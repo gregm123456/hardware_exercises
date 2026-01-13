@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Picker Live Camera Stream</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: #eeeeee;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            text-align: center;
+            background-color: #2d2d2d;
+            padding: 2rem;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        h1 {
+            margin-top: 0;
+            color: #00ff88;
+        }
+        .stream-box {
+            position: relative;
+            width: 512px;
+            height: 512px;
+            background-color: #000;
+            border: 4px solid #444;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+        #stream-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        input {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background: #111;
+            color: #fff;
+            width: 200px;
+        }
+        button {
+            padding: 8px 16px;
+            border-radius: 4px;
+            border: none;
+            background: #00ff88;
+            color: #1a1a1a;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #00cc6e;
+        }
+        .info {
+            font-size: 0.9rem;
+            color: #888;
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Picker Live View</h1>
+        <div class="stream-box">
+            <img id="stream-img" src="" alt="Stream not started">
+        </div>
+        
+        <div class="controls">
+            <input type="text" id="ip-addr" placeholder="Raspberry Pi IP (e.g. 192.168.1.5)">
+            <button onclick="updateStream()">Connect</button>
+        </div>
+        
+        <div class="info">
+            Standard: 512x512 | Protocol: MJPEG | Port: 8088
+        </div>
+    </div>
+
+    <script>
+        const img = document.getElementById('stream-img');
+
+        // Initialize on load
+        window.onload = function() {
+            img.src = 'http://localhost:8088/stream.mjpg';
+        };
+    </script>
+</body>
+</html>
