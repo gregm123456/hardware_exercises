@@ -23,7 +23,7 @@
             height: 600px;
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
-            grid-template-rows: 1fr auto;
+            grid-template-rows: auto auto;
             gap: 15px;
             padding: 20px;
             box-sizing: border-box;
@@ -44,7 +44,7 @@
         .panel-header {
             background: #333;
             padding: 5px 10px;
-            font-size: 12px;
+            font-size: 24px;
             text-transform: uppercase;
             letter-spacing: 1px;
             border-bottom: 1px solid #444;
@@ -67,11 +67,15 @@
             color: #ccc;
         }
 
+        .image-wrapper {
+            background: #000;
+            line-height: 0;
+        }
+
         img {
             width: 100%;
-            height: 100%;
-            object-fit: contain;
-            background: #000;
+            height: auto;
+            display: block;
         }
 
         .status-dot {
@@ -117,23 +121,29 @@
                 <span><span class="status-dot"></span>Live Stream</span>
                 <span class="timestamp" id="live-time"></span>
             </div>
-            <img src="/stream.mjpg" alt="Live Stream">
+            <div class="image-wrapper">
+                <img src="/stream.mjpg" alt="Live Stream">
+            </div>
         </div>
         
         <div class="panel latest-capture">
             <div class="panel-header">
-                <span>Latest Capture</span>
+                <span>You</span>
                 <span class="timestamp" id="still-time"></span>
             </div>
-            <img id="still-img" src="/assets/placeholder_still.png" alt="Still Capture">
+            <div class="image-wrapper">
+                <img id="still-img" src="/assets/placeholder_still.png" alt="Still Capture">
+            </div>
         </div>
         
         <div class="panel ai-generation">
             <div class="panel-header">
-                <span>AI Generation</span>
+                <span>The New You</span>
                 <span class="timestamp" id="gen-time"></span>
             </div>
-            <img id="gen-img" src="/assets/placeholder_gen.png" alt="AI Generation">
+            <div class="image-wrapper">
+                <img id="gen-img" src="/assets/placeholder_gen.png" alt="AI Generation">
+            </div>
         </div>
         
         <div class="panel prompt-text">
