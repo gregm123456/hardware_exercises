@@ -387,10 +387,13 @@ class PickerCore:
                             
                             # Also save to disk for debugging/reference as before
                             try:
-                                img.save('/home/gregm/hardware_exercises/still.png')
-                                logger.info("Saved latest camera still to /home/gregm/hardware_exercises/still.png")
+                                from pathlib import Path
+                                assets_dir = Path(__file__).parent / 'assets'
+                                still_path = str(assets_dir / 'latest_still.png')
+                                img.save(still_path)
+                                logger.info(f"Saved latest camera still to {still_path}")
                             except Exception as e:
-                                logger.warning(f"Failed to save still.png for debug: {e}")
+                                logger.warning(f"Failed to save latest_still.png: {e}")
                         except Exception as e:
                             logger.error(f"Failed to capture image for img2img: {e}, falling back to txt2img")
                     else:

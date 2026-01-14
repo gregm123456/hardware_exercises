@@ -181,7 +181,11 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
     # locate placeholder asset if not provided
     if not placeholder_path:
         try:
-            candidate = Path(__file__).parent / 'assets' / 'placeholder.png'
+            # Prefer the latest generated image, then fallback to placeholder
+            candidate = Path(__file__).parent / 'assets' / 'img2img_output.png'
+            if not candidate.exists():
+                candidate = Path(__file__).parent / 'assets' / 'placeholder.png'
+            
             if candidate.exists():
                 placeholder_path = str(candidate)
         except Exception:

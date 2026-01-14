@@ -29,7 +29,7 @@ SD_BATCH_SIZE = 1
 # Additional allowed extras that may be populated by the caller
 EXTRA_PROMPT_TAGS: List[str] = []
 
-DEFAULT_OUTPUT_PATH = str(Path(__file__).parent / 'assets' / 'placeholder.png')
+DEFAULT_OUTPUT_PATH = str(Path(__file__).parent / 'assets' / 'img2img_output.png')
 
 # Gamma adjustment for e-paper display brightness
 # Values > 1.0 brighten midtones while preserving full dynamic range (0-255)

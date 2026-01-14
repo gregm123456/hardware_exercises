@@ -5,6 +5,10 @@ import io
 import threading
 import logging
 import errno
+import os
+import mimetypes
+import socketserver
+from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from picamera2 import Picamera2
 from picamera2.encoders import MJPEGEncoder
@@ -31,6 +35,7 @@ class StreamingOutput(io.BufferedIOBase):
 class StreamingHandler(BaseHTTPRequestHandler):
     """HTTP handler for MJPEG streaming."""
     def do_GET(self):
+        logger.debug(f"GET request: {self.path}")
         if self.path == '/stream.mjpg':
             self.send_response(200)
             self.send_header('Age', 0)
@@ -51,11 +56,43 @@ class StreamingHandler(BaseHTTPRequestHandler):
                     self.wfile.write(b'\r\n')
             except Exception as e:
                 logger.debug(f"Streaming client disconnected: {e}")
+        elif self.path == '/' or self.path == '/index.html' or self.path == '/assets/live_still_gen.html':
+            self.serve_asset('live_still_gen.html')
+        elif self.path.startswith('/assets/'):
+            asset_name = self.path.replace('/assets/', '').split('?')[0]
+            self.serve_asset(asset_name)
         else:
             self.send_error(404)
             self.end_headers()
 
-class StreamingServer(HTTPServer):
+    def serve_asset(self, asset_name):
+        try:
+            # Asset directory is relative to this file
+            asset_dir = Path(__file__).parent / 'assets'
+            asset_path = asset_dir / asset_name
+            
+            if not asset_path.exists():
+                self.send_error(404)
+                return
+
+            content_type, _ = mimetypes.guess_type(str(asset_path))
+            if not content_type:
+                content_type = 'application/octet-stream'
+
+            with open(asset_path, 'rb') as f:
+                content = f.read()
+
+            self.send_response(200)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Content-Length', len(content))
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception as e:
+            logger.error(f"Error serving asset {asset_name}: {e}")
+            self.send_error(500)
+
+class StreamingServer(socketserver.ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
 
 
