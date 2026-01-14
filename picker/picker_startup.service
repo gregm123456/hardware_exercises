@@ -1,14 +1,16 @@
 [Unit]
-Description=Picker Startup Service
+Description=Picker Camera Still Startup Service
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=gregm
 WorkingDirectory=/home/gregm/hardware_exercises
-Environment=PYTHONPATH=/home/gregm/hardware_exercises:$PYTHONPATH
-ExecStart=/home/gregm/hardware_exercises/.venv/bin/python3 picker/run_picker.py --verbose
+Environment=PYTHONPATH=/home/gregm/hardware_exercises
+ExecStart=/home/gregm/hardware_exercises/.venv/bin/python3 picker/run_picker.py --generation-mode img2img --verbose --stream --stream-port 8088
 Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
