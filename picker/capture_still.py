@@ -150,8 +150,22 @@ class CameraManager:
             # Picamera2.capture_array uses 'name' as the first positional argument
             # for the stream name, rather than a 'stream' keyword.
             image_array = self.picam2.capture_array('main')
-            # Convert to PIL Image
-            image = Image.fromarray(image_array)
+            # Some camera backends return arrays in BGR channel order even when
+            # configured for RGB; ensure we present a proper RGB PIL image by
+            # swapping channels if necessary. Swapping unconditionally is
+            # inexpensive and keeps colors consistent with the MJPEG stream.
+            try:
+                # Log the first pixel for quick diagnostics (dtype safe)
+                if image_array.ndim == 3 and image_array.shape[2] >= 3:
+                    logger.debug(f"Captured first pixel (raw): {image_array[0,0,:3].tolist()}")
+                rgb_array = image_array[..., ::-1]
+            except Exception:
+                # Fall back to using the original array if something unexpected
+                # is returned by the camera (e.g., single-channel arrays).
+                logger.debug("Could not swap channels; using captured array as-is")
+                rgb_array = image_array
+
+            image = Image.fromarray(rgb_array)
             logger.info(f"Successfully captured {image.size} image from camera")
             return image
         except Exception as e:
