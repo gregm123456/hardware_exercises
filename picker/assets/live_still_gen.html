@@ -23,9 +23,9 @@
             height: 600px;
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
-            grid-template-rows: auto auto;
-            gap: 15px;
-            padding: 20px;
+            grid-template-rows: 380px 1fr 1fr;
+            gap: 10px;
+            padding: 15px;
             box-sizing: border-box;
             max-width: 100vw;
             max-height: 100vh;
@@ -43,8 +43,8 @@
 
         .panel-header {
             background: #333;
-            padding: 5px 10px;
-            font-size: 24px;
+            padding: 4px 10px;
+            font-size: 16px;
             text-transform: uppercase;
             letter-spacing: 1px;
             border-bottom: 1px solid #444;
@@ -52,14 +52,14 @@
             justify-content: space-between;
         }
 
-        .prompt-text {
+        .interrogation-text, .prompt-text {
             grid-column: 1 / 4;
         }
 
-        .prompt-content {
-            padding: 10px 15px;
-            font-size: 32px;
-            line-height: 1.4;
+        .interrogation-content, .prompt-content {
+            padding: 5px 15px;
+            font-size: 20px;
+            line-height: 1.3;
             overflow-y: auto;
             flex: 1;
             display: flex;
@@ -146,6 +146,13 @@
             </div>
         </div>
         
+        <div class="panel interrogation-text">
+            <div class="panel-header">
+                <span>Identified Attributes</span>
+            </div>
+            <div class="interrogation-content" id="interrogation-text">—</div>
+        </div>
+        
         <div class="panel prompt-text">
             <div class="panel-header">
                 <span>Current Prompt</span>
@@ -158,6 +165,7 @@
         const stillImg = document.getElementById('still-img');
         const genImg = document.getElementById('gen-img');
         const liveTime = document.getElementById('live-time');
+        const interrogationText = document.getElementById('interrogation-text');
         const promptText = document.getElementById('prompt-text');
 
         function updateTime() {
@@ -178,6 +186,20 @@
                 const response = await fetch('/api/status');
                 if (response.ok) {
                     const data = await response.json();
+                    
+                    // Update interrogation results
+                    if (data.interrogation_results && !data.interrogation_results.error) {
+                        const results = data.interrogation_results.results || {};
+                        const tags = data.interrogation_results.general_tags || [];
+                        const winners = Object.values(results).map(r => r.winner);
+                        const all = [...winners, ...tags];
+                        interrogationText.textContent = all.length > 0 ? all.join(', ') : '—';
+                    } else if (data.interrogation_results && data.interrogation_results.error) {
+                        interrogationText.textContent = 'Error: ' + data.interrogation_results.error;
+                    } else {
+                        interrogationText.textContent = '—';
+                    }
+
                     if (data.current_prompt) {
                         promptText.textContent = data.current_prompt;
                     } else {

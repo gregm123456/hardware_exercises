@@ -170,3 +170,30 @@ def generate_image(prompt: str, output_path: Optional[str] = None, overrides: di
     img.save(tmp_path, format='PNG')
     os.replace(tmp_path, output_path)
     return output_path
+
+
+def interrogate_structured(image_b64: str, categories: dict) -> dict:
+    """Perform structured interrogation on a base64-encoded image.
+
+    Args:
+        image_b64: The base64-encoded image string.
+        categories: A dictionary of categories and their possible values.
+                    e.g. {"hair_color": ["pink", "blonde", "brown", "black"]}
+
+    Returns:
+        The JSON response from the interrogation API.
+    """
+    payload = {
+        "image": image_b64,
+        "categories": categories
+    }
+    
+    endpoint = "/sdapi/v1/interrogate/structured"
+    logger.info(f"Calling structured interrogation API for {len(categories)} categories")
+    
+    try:
+        resp = _call_api(endpoint, payload)
+        return resp
+    except Exception as e:
+        logger.error(f"Structured interrogation failed: {e}")
+        return {"error": str(e), "results": {}, "general_tags": []}

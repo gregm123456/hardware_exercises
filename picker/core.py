@@ -51,6 +51,7 @@ class PickerCore:
         
         # track last-main view to avoid redundant blits
         self.last_main_positions = {}
+        self.last_interrogate = None
         self.running = False
         self.stream_port = stream_port
 
@@ -385,6 +386,25 @@ class PickerCore:
                             init_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
                             logger.info(f"Image base64-encoded (length: {len(init_image)})")
                             
+                            # Perform structured interrogation for demographics
+                            try:
+                                categories = {}
+                                for ch_key in ["CH0", "CH1", "CH2", "CH4", "CH5", "CH6"]:
+                                    knob_data = self.texts.get(ch_key)
+                                    if knob_data and "title" in knob_data and "values" in knob_data:
+                                        title = knob_data["title"]
+                                        # Only include non-empty values
+                                        valid_values = [v for v in knob_data["values"] if v and v.strip()]
+                                        if valid_values:
+                                            categories[title] = valid_values
+                                
+                                if categories:
+                                    logger.info(f"Performing structured interrogation with {len(categories)} categories...")
+                                    self.last_interrogate = sd_client.interrogate_structured(init_image, categories)
+                                    logger.info("Structured interrogation complete")
+                            except Exception as e:
+                                logger.error(f"Structured interrogation failed: {e}")
+
                             # Also save to disk for debugging/reference as before
                             try:
                                 from pathlib import Path
