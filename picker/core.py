@@ -60,7 +60,7 @@ class PickerCore:
             try:
                 from picker.capture_still import CameraManager
                 logger.info(f"Initializing camera (stream={stream}, port={stream_port})...")
-                self.camera_manager = CameraManager(stream=stream, port=stream_port)
+                self.camera_manager = CameraManager(stream=stream, port=stream_port, core=self)
                 if getattr(self.camera_manager, "stream_port", None):
                     self.stream_port = self.camera_manager.stream_port
             except Exception as e:

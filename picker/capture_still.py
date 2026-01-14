@@ -56,6 +56,8 @@ class StreamingHandler(BaseHTTPRequestHandler):
                     self.wfile.write(b'\r\n')
             except Exception as e:
                 logger.debug(f"Streaming client disconnected: {e}")
+        elif self.path == '/api/status':
+            self.send_json_status()
         elif self.path == '/' or self.path == '/index.html' or self.path == '/assets/live_still_gen.html':
             self.serve_asset('live_still_gen.html')
         elif self.path.startswith('/assets/'):
@@ -64,6 +66,30 @@ class StreamingHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
             self.end_headers()
+
+    def send_json_status(self):
+        """Send current picker status as JSON."""
+        import json
+        try:
+            status = {
+                "current_prompt": "",
+                "positions": {}
+            }
+            # Access core state if available
+            if hasattr(self.server, 'core') and self.server.core:
+                status["current_prompt"] = self.server.core.last_image_source or ""
+                status["positions"] = self.server.core.last_main_positions or {}
+            
+            data = json.dumps(status).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', len(data))
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as e:
+            logger.error(f"Error sending status: {e}")
+            self.send_error(500)
 
     def serve_asset(self, asset_name):
         try:
@@ -97,11 +123,12 @@ class StreamingServer(socketserver.ThreadingMixIn, HTTPServer):
 
 
 class CameraManager:
-    def __init__(self, stream=False, port=8088):
+    def __init__(self, stream=False, port=8088, core=None):
         self.server = None
         self.server_thread = None
         self.stream_port = None
         self.output = None
+        self.core = core
 
         try:
             self.picam2 = Picamera2()
@@ -148,6 +175,7 @@ class CameraManager:
                 self.server, bound_port = self._bind_streaming_server(port)
                 self.stream_port = bound_port
                 self.server.output = self.output
+                self.server.core = self.core
                 self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
                 self.server_thread.start()
                 if bound_port != port:

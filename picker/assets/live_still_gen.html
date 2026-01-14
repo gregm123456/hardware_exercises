@@ -22,8 +22,8 @@
             width: 1024px;
             height: 600px;
             display: grid;
-            grid-template-columns: 2fr 1fr;
-            grid-template-rows: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-rows: 1fr auto;
             gap: 15px;
             padding: 20px;
             box-sizing: border-box;
@@ -52,8 +52,19 @@
             justify-content: space-between;
         }
 
-        .live-stream {
-            grid-row: span 2;
+        .prompt-text {
+            grid-column: 1 / 4;
+        }
+
+        .prompt-content {
+            padding: 10px 15px;
+            font-size: 32px;
+            line-height: 1.4;
+            overflow-y: auto;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            color: #ccc;
         }
 
         img {
@@ -109,7 +120,7 @@
             <img src="/stream.mjpg" alt="Live Stream">
         </div>
         
-        <div class="panel">
+        <div class="panel latest-capture">
             <div class="panel-header">
                 <span>Latest Capture</span>
                 <span class="timestamp" id="still-time"></span>
@@ -117,12 +128,19 @@
             <img id="still-img" src="/assets/placeholder_still.png" alt="Still Capture">
         </div>
         
-        <div class="panel">
+        <div class="panel ai-generation">
             <div class="panel-header">
                 <span>AI Generation</span>
                 <span class="timestamp" id="gen-time"></span>
             </div>
             <img id="gen-img" src="/assets/placeholder_gen.png" alt="AI Generation">
+        </div>
+        
+        <div class="panel prompt-text">
+            <div class="panel-header">
+                <span>Current Prompt</span>
+            </div>
+            <div class="prompt-content" id="prompt-text">—</div>
         </div>
     </div>
 
@@ -130,6 +148,7 @@
         const stillImg = document.getElementById('still-img');
         const genImg = document.getElementById('gen-img');
         const liveTime = document.getElementById('live-time');
+        const promptText = document.getElementById('prompt-text');
 
         function updateTime() {
             const now = new Date();
@@ -144,12 +163,30 @@
             genImg.src = '/assets/img2img_output.png?t=' + t;
         }
 
+        async function pollStatus() {
+            try {
+                const response = await fetch('/api/status');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.current_prompt) {
+                        promptText.textContent = data.current_prompt;
+                    } else {
+                        promptText.textContent = '—';
+                    }
+                }
+            } catch (e) {
+                // Silently fail - endpoint might not be ready yet
+            }
+        }
+
         // Initially load
         updateTime();
         pollImages();
+        pollStatus();
         
         // Poll every 500ms
         setInterval(pollImages, 500);
+        setInterval(pollStatus, 500);
         setInterval(updateTime, 1000);
     </script>
 </body>
