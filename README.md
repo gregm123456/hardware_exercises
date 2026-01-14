@@ -1,4 +1,3 @@
-(The file `/Users/gregm/ACE/ePaper/hardware_exercises/README.md` exists, but is empty)
 # hardware_exercises — E-Paper utilities and examples
 
 This repository contains small utilities, examples, and helper scripts for
@@ -156,3 +155,36 @@ If you'd like, I can also:
 - Add a short example script that demonstrates a common workflow end-to-end.
 - Create a small tests harness that runs in virtual mode and validates basic
 	display-update paths.
+
+## Picker Subproject
+
+The `picker/` folder contains a standalone UI application for selecting values using rotary knobs and buttons, designed for e-paper displays. It supports both simulation and real hardware modes.
+
+### Key Features
+- **Live Camera Streaming**: Provides an MJPEG stream of the camera view. Enable it with the `--stream` flag (default port 8088).
+- **Stable Diffusion Integration**: Supports `txt2img` and `img2img` generation modes. In `img2img`, the camera captures a still image for processing.
+- **Calibration**: Interactive calibration for rotary knobs using `mcp3008_calibration.json`.
+- **Rotation Support**: Display content can be rotated (`CW`, `CCW`, `flip`) for portrait or landscape layouts.
+- **Systemd Services**: Includes `picker_startup.service` and `picker_camera_still_startup.service` for automatic startup.
+
+### Running the Picker
+1. **Install Requirements**:
+   ```bash
+   pip install -r picker/requirements.txt
+   ```
+2. **Run in Simulation Mode**:
+   ```bash
+   PYTHONPATH=. python picker/run_picker.py --simulate --display-w 800 --display-h 600
+   ```
+3. **Run on Hardware**:
+   ```bash
+   PYTHONPATH=. python picker/run_picker.py --display-w 1448 --display-h 1072 --display-spi-device 0
+   ```
+4. **Enable Live Streaming**:
+   ```bash
+   PYTHONPATH=. python picker/run_picker.py --stream
+   ```
+
+### Troubleshooting
+- Use `picker/diagnose_epaper.sh` to diagnose SPI and GPIO issues.
+- Refer to `picker/README.md` for detailed setup instructions.
