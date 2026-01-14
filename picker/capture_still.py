@@ -74,13 +74,15 @@ class StreamingHandler(BaseHTTPRequestHandler):
             status = {
                 "current_prompt": "",
                 "positions": {},
-                "interrogation_results": None
+                "interrogation_results": None,
+                "gen_interrogation_results": None
             }
             # Access core state if available
             if hasattr(self.server, 'core') and self.server.core:
                 status["current_prompt"] = self.server.core.last_image_source or ""
                 status["positions"] = self.server.core.last_main_positions or {}
                 status["interrogation_results"] = self.server.core.last_interrogate
+                status["gen_interrogation_results"] = self.server.core.last_gen_interrogate
             
             data = json.dumps(status).encode('utf-8')
             self.send_response(200)

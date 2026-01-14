@@ -52,6 +52,7 @@ class PickerCore:
         # track last-main view to avoid redundant blits
         self.last_main_positions = {}
         self.last_interrogate = None
+        self.last_gen_interrogate = None
         self.running = False
         self.stream_port = stream_port
 
@@ -430,6 +431,28 @@ class PickerCore:
                         'n_iter': sd_config.SD_N_ITER,
                         'batch_size': sd_config.SD_BATCH_SIZE,
                     }, mode=self.generation_mode, init_image=init_image)
+
+                    # Interrogate generated image to get general tags
+                    try:
+                        # Construct categories if they were built earlier, otherwise just interrogation
+                        # We use the same categories as the still image as requested
+                        interrogation_categories = {}
+                        for ch_key in ["CH0", "CH1", "CH2", "CH4", "CH5", "CH6"]:
+                            knob_data = self.texts.get(ch_key)
+                            if knob_data and "title" in knob_data and "values" in knob_data:
+                                title = knob_data["title"]
+                                valid_values = [v for v in knob_data["values"] if v and v.strip()]
+                                if valid_values:
+                                    interrogation_categories[title] = valid_values
+
+                        with open(sd_config.DEFAULT_OUTPUT_PATH, "rb") as f:
+                            gen_image_b64 = base64.b64encode(f.read()).decode('utf-8')
+                        
+                        logger.info("Interrogating generated image...")
+                        self.last_gen_interrogate = sd_client.interrogate_structured(gen_image_b64, interrogation_categories)
+                    except Exception as e:
+                        logger.error(f"Interrogation of generated image failed: {e}")
+
                     # After generation, set the last_image_source to the prompt
                     # (or a concise knob CSV) so the UI annotation will match the
                     # image that was generated. Then request immediate main

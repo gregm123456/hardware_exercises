@@ -78,6 +78,12 @@
             display: block;
         }
 
+        .live-stream img,
+        .latest-capture img,
+        .ai-generation img {
+            transform: scaleX(-1);
+        }
+
         .status-dot {
             width: 8px;
             height: 8px;
@@ -201,7 +207,15 @@
                     }
 
                     if (data.current_prompt) {
-                        promptText.textContent = data.current_prompt;
+                        let text = data.current_prompt;
+                        // Add general tags from generated image if available
+                        if (data.gen_interrogation_results && data.gen_interrogation_results.general_tags) {
+                            const tags = data.gen_interrogation_results.general_tags;
+                            if (tags.length > 0) {
+                                text += ', ' + tags.join(', ');
+                            }
+                        }
+                        promptText.textContent = text;
                     } else {
                         promptText.textContent = '—';
                     }
