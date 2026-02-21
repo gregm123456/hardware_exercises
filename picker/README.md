@@ -98,12 +98,19 @@ When running as a service on Pi 5:
 
 - `rotary_core.py` *(new — rotary mode)* — navigation state machine.
   - Two states: `TOP_MENU` and `SUBMENU`.
-  - Top level shows: `[menu_0_title, ..., menu_N_title, "Go", "Reset"]`.
-  - Submenu shows: `["↩ Return", item_0, ..., item_K]`.
-  - Press on a menu name → enter submenu; press "↩ Return" → go back without
-    changing selection; press an item → save selection and return to top level.
+  - Top level shows: `["Back", menu_0_title, ..., menu_N_title, "Go", "Reset"]`.
+    The cursor is always reset to `"Back"` (index 0) whenever the top menu is
+    re-displayed, so the user can immediately press to return to the main screen.
+  - Submenu shows: `["↩ Return", item_0, ..., item_K, ""]`.
+    The currently-selected item is auto-snapped and visually marked with a
+    `* ` prefix (e.g. `"* Adult"`).  The last entry `""` is a blank
+    (no-selection) choice.
+  - Press "Back" at top level → fires callback; press a menu name → enter
+    submenu; press "↩ Return" → go back without changing selection; press an
+    item or blank → save selection and return to top level.
   - Press "Go" or "Reset" at top level → fires callback.
   - `RotaryPickerCore.get_current_values()` → `{menu_title: selected_value}`.
+    An index pointing at the blank entry returns `""`.
 
 - `ui.py` — UI composition utilities (Pillow).
   - `compose_overlay(title, values, selected_index, full_screen)` — 12-item
@@ -209,8 +216,9 @@ instead (see *Running on hardware* below).
  ┌─────────────────────────────────────────────────────┐
  │  TOP MENU                                           │
  │  ──────────────────────────────────────────────     │
+ │  ▶ Back               ← push to return to main     │  ← cursor always starts here
  │    Sex/Gender          ← rotate to highlight        │
- │  ▶ Age                 ← push to enter submenu      │
+ │    Age                 ← push to enter submenu      │
  │    Socioeconomics                                   │
  │    Politics                                         │
  │    Race                                             │
@@ -224,18 +232,27 @@ instead (see *Running on hardware* below).
  │  ──────────────────────────────────────────────     │
  │    ↩ Return            ← push to go back unchanged  │
  │    Young Adult                                      │
- │  ▶ Adult               ← push to select             │
+ │  ▶ * Adult             ← currently selected (marked with * )
  │    Middle-aged                                      │
  │    Senior                                           │
  │    ...                 (scroll indicator on right)  │
+ │                        ← blank (no selection) last  │
  └─────────────────────────────────────────────────────┘
 ```
 
 - **Rotate** — scroll through the visible list.
 - **Push** — enter the highlighted submenu / select the highlighted item /
   trigger Go or Reset / return to top level.
+- **"Back"** — first item in the top menu; the cursor always lands here when
+  the top menu is (re-)displayed so the user can immediately press to return
+  to the main screen without waiting for the idle timeout.
 - **"↩ Return"** at the top of every submenu — go back to the top menu
   *without* changing the current selection for that category.
+- **`* ` prefix** — the currently-selected value in a submenu is displayed
+  with a `* ` prefix (e.g. `* Adult`) and is auto-snapped when entering
+  the submenu so it is immediately highlighted.
+- **Blank entry** — the last item in every submenu is an empty string, allowing
+  the user to explicitly set *no selection* for that category.
 - **Wrap-around is disabled** — rotating past the last item stops at the end
   (predictable boundary behaviour).
 
@@ -531,9 +548,11 @@ as follows:
    - `TOP_MENU` → enqueues a `compose_rotary_menu` image (navigation list).
    - `SUBMENU` → enqueues a `compose_overlay` image for the relevant ADC
      channel (identical to the ADC-mode knob overlay).
-4. **`_do_action` delegation** — "Go" calls `picker_core.handle_go()` and
-   "Reset" calls `picker_core.handle_reset()`, providing full SD generation,
-   camera capture, img2img, display reinitialization, and main-screen redraw.
+4. **`_do_action` delegation** — "Back" calls `picker_core.show_main()` to
+   return immediately to the main screen. "Go" calls `picker_core.handle_go()`
+   and "Reset" calls `picker_core.handle_reset()`, providing full SD
+   generation, camera capture, img2img, display reinitialization, and
+   main-screen redraw.
 5. **Idle timeout (3 s)** — after 3 seconds of no encoder activity while in
    `TOP_MENU`, `picker_core.show_main()` is called to return the display to the
    main screen, mirroring the ADC-mode overlay timeout.
