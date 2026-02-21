@@ -235,15 +235,21 @@ def _run_rotary(args) -> int:
             logger.debug(f"Display update failed: {exc}")
 
     def _do_action(action_name):
-        """Handle Go / Reset using PickerCore for full SD-generation functionality."""
+        """Handle Go / Reset / Back using PickerCore for full SD-generation functionality."""
         logger.info(f"Action triggered: {action_name}")
         rc = rotary_core_holder[0]
         if rc is not None:
             _sync_hw_from_rotary(rc)
         if action_name == "Go":
             picker_core.handle_go()
-        else:
+        elif action_name == "Reset":
             picker_core.handle_reset()
+        elif action_name == "Back":
+            try:
+                prev_menu_image[0] = None
+                picker_core.show_main()
+            except Exception as exc:
+                logger.debug(f"Back to main screen failed: {exc}")
 
     rotary_core = RotaryPickerCore(
         menus=menus,
