@@ -1,6 +1,25 @@
 Picker — Design, implementation, and usage
 =========================================
 
+## ⚠️ IMPORTANT: Known Regression
+
+**During rotary encoder optimization (2026-02-21), core camera and image generation features were temporarily removed from the service configuration.**
+
+**MISSING FUNCTIONALITY**:
+- ❌ Live camera MJPEG streaming (port 8088)
+- ❌ Camera snapshot capture on "Go" button
+- ❌ Image-to-image generation with Stable Diffusion
+- ❌ Structured interrogation of images
+
+**WHAT WORKS**:
+- ✅ Rotary encoder navigation (fully optimized)
+- ✅ E-paper display with fast partial refresh
+- ✅ Menu selection and persistence
+
+**📖 See [FUNCTIONALITY_REGRESSION.md](FUNCTIONALITY_REGRESSION.md) for complete details and restoration roadmap.**
+
+---
+
 This `picker/` package implements a small, standalone selection UI designed for
 headless hardware (Raspberry Pi + e-paper display) but with simulation paths so
 you can develop and test on a workstation.
@@ -177,6 +196,10 @@ Both formats can share the same JSON file. If a `"menus"` key is present,
 
 Rotary encoder input mode
 --------------------------
+
+**📖 For detailed optimization techniques and performance tuning, see [ROTARY_ENCODER_OPTIMIZATION.md](ROTARY_ENCODER_OPTIMIZATION.md)**
+
+This section covers basic rotary encoder usage. The optimization guide documents advanced techniques including queue draining, directional momentum filtering, and partial refresh implementation.
 
 ### Hardware wiring
 
@@ -549,6 +572,8 @@ Files of interest (quick map)
 | `picker/hw.py` | ADC hardware abstraction and simulation |
 | `picker/rotary_encoder.py` | GPIO rotary encoder driver + `SimulatedRotaryEncoder` |
 | `picker/rotary_core.py` | Rotary navigation state machine |
+| `picker/ROTARY_ENCODER_OPTIMIZATION.md` | **Detailed guide to rotary encoder optimizations and performance tuning** |
+| `picker/FUNCTIONALITY_REGRESSION.md` | **⚠️ CRITICAL: Documents camera/img2img features removed during rotary debugging** |
 | `picker/ui.py` | Image composition: `compose_overlay`, `compose_rotary_menu`, `compose_message` |
 | `picker/core.py` | ADC-mode app state machine / event loop |
 | `picker/sd_client.py`, `picker/sd_config.py` | Stable Diffusion client and defaults |

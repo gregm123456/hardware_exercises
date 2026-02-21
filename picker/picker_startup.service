@@ -1,5 +1,5 @@
 [Unit]
-Description=Picker Camera Still Startup Service
+Description=Picker Rotary Encoder Service with Camera (img2img)
 After=network.target
 StartLimitIntervalSec=0
 
@@ -8,7 +8,7 @@ Type=simple
 User=gregm
 WorkingDirectory=/home/gregm/hardware_exercises
 Environment=PYTHONPATH=/home/gregm/hardware_exercises
-ExecStart=/home/gregm/hardware_exercises/.venv/bin/python3 picker/run_picker.py --generation-mode img2img --verbose --stream --stream-port 8088 --rotary
+ExecStart=/home/gregm/hardware_exercises/.venv/bin/python3 picker/run_picker.py --rotary --display-w 1448 --display-h 1072
 Restart=always
 RestartSec=5
 

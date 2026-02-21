@@ -113,6 +113,9 @@ class RotaryPickerCore:
         self._cursor: int = 0             # index within the *currently shown* list
 
         # Render initial display
+        logger.info(f"RotaryPickerCore initialized with {len(menus)} menus")
+        top_items = self._top_level_items()
+        logger.info(f"Top-level items: {top_items}")
         self._refresh_display()
 
     # ------------------------------------------------------------------
@@ -209,9 +212,10 @@ class RotaryPickerCore:
     def _refresh_display(self) -> None:
         title = self._current_title()
         items = self._current_items()
-        logger.debug(
-            "Display refresh: state=%s title=%r cursor=%d/%d",
+        logger.info(
+            "→ Display refresh: state=%s title=%r cursor=%d/%d items=%r",
             self._state.name, title, self._cursor, len(items),
+            items[:5] + (['...'] if len(items) > 5 else []),
         )
         try:
             self._on_display(title, items, self._cursor)

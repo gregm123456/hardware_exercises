@@ -128,6 +128,11 @@ class RotaryEncoder:
 
         # Quadrature decoder state (lower 2 bits = AB)
         self._quad_state: int = 0
+        # Track raw GPIO reads before debouncing
+        self._quad_raw_reads: list = []
+        self._quad_required_reads: int = 2  # Low latency: only 2 stable reads (fast response)
+        # Track last CLK state to detect edges
+        self._quad_last_clk: int = 1  # Start HIGH (idle state)
 
         # Debounced button state tracking
         self._sw_raw: Optional[int] = None     # last raw GPIO reading
@@ -144,6 +149,7 @@ class RotaryEncoder:
         clk0 = GPIO.input(pin_clk)
         dt0 = GPIO.input(pin_dt)
         self._quad_state = (clk0 << 1) | dt0
+        self._quad_last_stable_state = self._quad_state
         # Seed debounced button state
         sw0 = GPIO.input(pin_sw)
         self._sw_raw = sw0
@@ -174,14 +180,33 @@ class RotaryEncoder:
             t0 = time.monotonic()
 
             # --- Rotation (quadrature) ---
+            # Standard quadrature decoder: only recognize CLK edges, check DT for direction.
+            # This naturally divides transitions by 2 (only 2 CLK edges per full rotation).
             clk = GPIO.input(pin_clk)
             dt = GPIO.input(pin_dt)
-            new_state = (clk << 1) | dt
-            idx = (self._quad_state << 2) | new_state
-            direction = _STEP_TABLE[idx]
-            if direction != 0:
-                self._events.put(("rotate", direction))
-            self._quad_state = new_state
+            
+            # Debounce the CLK signal
+            self._quad_raw_reads.append(clk)
+            if len(self._quad_raw_reads) > self._quad_required_reads:
+                self._quad_raw_reads.pop(0)
+            
+            # Only process when CLK reading is stable
+            if len(self._quad_raw_reads) == self._quad_required_reads:
+                if all(r == self._quad_raw_reads[0] for r in self._quad_raw_reads):
+                    current_clk = self._quad_raw_reads[0]
+                    
+                    # Detect CLK edge (falling edge is most reliable for many encoders)
+                    if current_clk == 0 and self._quad_last_clk == 1:
+                        # CLK fell: when CLK goes 1→0, check DT state
+                        # If DT=1 when CLK falls → CW (forward); DT=0 → CCW (backward)
+                        if dt == 1:
+                            direction = 1  # Clockwise
+                        else:
+                            direction = -1  # Counter-clockwise
+                        
+                        self._events.put(("rotate", direction))
+                    
+                    self._quad_last_clk = current_clk
 
             # --- Button (time-based debounce) ---
             sw = GPIO.input(pin_sw)
