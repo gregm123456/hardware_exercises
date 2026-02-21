@@ -3,9 +3,29 @@
 **Date**: 2026-02-21  
 **Context**: While debugging and optimizing rotary encoder performance and display refresh issues, core application functionality was removed from the systemd service configuration.
 
-## ⚠️ CRITICAL: Missing Functionality
+## ✅ RESOLVED
 
-The following features were **removed** during rotary encoder debugging and need to be **restored**:
+The functionality regression documented below has been **fully resolved**.
+`_run_rotary()` in `picker/run_picker.py` now creates a full `PickerCore`
+instance and delegates all application logic to it, so rotary encoder mode has
+identical feature parity to ADC knob mode.
+
+**What was restored**:
+- ✅ Live camera MJPEG streaming (`--stream` / `--stream-port`)
+- ✅ Camera snapshot capture on "Go" button press (img2img)
+- ✅ Image-to-image generation with Stable Diffusion
+- ✅ Structured interrogation of captured and generated images
+- ✅ Full main screen (image + selected values) displayed at idle
+- ✅ "Go" triggers SD generation (not just a static message)
+- ✅ "Reset" reinitialises the display properly
+
+**How it was done**: see `picker/README.md` § *Rotary mode ↔ PickerCore bridge*
+and `picker/tests/test_rotary_picker_integration.py` for details.
+
+---
+
+## Historical Record (for reference)
+
 
 ---
 
@@ -116,19 +136,21 @@ This is the **PRIMARY PURPOSE** of the entire application:
 
 ## Original vs Current Feature Matrix
 
-| Feature | Original (ADC Mode) | Original (Rotary - Working) | Current (Rotary - Broken) | Status |
-|---------|---------------------|----------------------------|---------------------------|--------|
-| Input Interface | 6 knobs + 2 buttons | Rotary encoder | Rotary encoder | ✅ Working |
-| Display | E-paper 1448×1072 | E-paper 1448×1072 | E-paper 1448×1072 | ✅ Working |
-| Partial Refresh | Implemented | Implemented | ✅ Implemented & Optimized | ✅ Working |
-| Live Camera Stream | ✅ Port 8088 | ✅ Port 8088 | ❌ **REMOVED** | ❌ **BROKEN** |
-| MJPEG Web Interface | ✅ Yes | ✅ Yes | ❌ **REMOVED** | ❌ **BROKEN** |
-| Camera Snapshot | ✅ On "Go" press | ✅ On "Go" press | ❌ **REMOVED** | ❌ **BROKEN** |
-| img2img Generation | ✅ Yes | ✅ Yes | ❌ **REMOVED** | ❌ **BROKEN** |
-| SD Integration | ✅ txt2img + img2img | ✅ txt2img + img2img | ❌ **REMOVED** | ❌ **BROKEN** |
-| Image Interrogation | ✅ Structured | ✅ Structured | ❌ **REMOVED** | ❌ **BROKEN** |
-| Verbose Logging | ✅ Yes | ✅ Yes | ❌ **REMOVED** | ❌ **BROKEN** |
-| Rotation Optimizations | N/A | ❌ Laggy/Flashing | ✅ Optimized | ✅ **NEW** |
+| Feature | ADC Mode | Rotary Mode (was broken) | Rotary Mode (now fixed) |
+|---------|----------|--------------------------|-------------------------|
+| Input Interface | 6 knobs + 2 buttons | Rotary encoder | Rotary encoder |
+| Display | E-paper 1448×1072 | E-paper 1448×1072 | E-paper 1448×1072 |
+| Partial Refresh | ✅ Implemented | ✅ Optimized | ✅ Optimized |
+| Main screen at idle | ✅ Yes | ❌ Missing | ✅ Restored |
+| Knob overlay (submenu) | ✅ Yes | ❌ Missing | ✅ Restored |
+| Live Camera Stream | ✅ Port 8088 | ❌ Removed | ✅ Restored |
+| MJPEG Web Interface | ✅ Yes | ❌ Removed | ✅ Restored |
+| Camera Snapshot on Go | ✅ Yes | ❌ Removed | ✅ Restored |
+| img2img Generation | ✅ Yes | ❌ Removed | ✅ Restored |
+| SD Integration | ✅ txt2img + img2img | ❌ Removed | ✅ Restored |
+| Image Interrogation | ✅ Structured | ❌ Removed | ✅ Restored |
+| Verbose Logging | ✅ Yes | ❌ Removed | ✅ Restored (via `--verbose`) |
+| Rotation Optimizations | N/A | ✅ Optimized | ✅ Preserved |
 
 ---
 
@@ -373,8 +395,7 @@ sudo systemctl status picker_startup.service
 
 ## Sign-Off
 
-**Status**: DOCUMENTED, NOT FIXED  
-**Next Action**: When ready to restore functionality, use this document as the restoration roadmap  
-**Preserved**: All optimizations from rotary encoder work must be maintained during restoration  
-
-The rotary encoder now provides an excellent, responsive user experience. The challenge is to integrate it with the original camera/SD workflow without losing the performance gains.
+**Status**: RESOLVED  
+**Fixed in**: `picker/run_picker.py` — `_run_rotary()` now creates a `PickerCore` instance and bridges all rotary selections/actions through it  
+**Preserved**: All rotary encoder optimizations (queue draining, partial refresh, momentum filter, debounce) remain fully intact  
+**Tests**: `picker/tests/test_rotary_picker_integration.py` — 17 tests covering the bridge logic

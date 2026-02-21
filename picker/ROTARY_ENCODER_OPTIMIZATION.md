@@ -1,15 +1,5 @@
 # Rotary Encoder Optimization Guide
 
-## ⚠️ IMPORTANT NOTE
-
-**These optimizations were implemented during a debugging session that temporarily removed camera and image generation functionality from the service configuration.**
-
-**See [FUNCTIONALITY_REGRESSION.md](FUNCTIONALITY_REGRESSION.md) for details on missing features and restoration plan.**
-
-This document describes **only the rotary encoder performance optimizations**. The camera streaming and img2img generation features need to be re-integrated separately.
-
----
-
 This document describes the optimizations implemented to make the rotary encoder interface feel responsive and natural, like a physical device.
 
 ## Problem Statement
