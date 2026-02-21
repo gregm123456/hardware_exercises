@@ -83,6 +83,21 @@ class StreamingHandler(BaseHTTPRequestHandler):
                 status["positions"] = getattr(self.server.core, 'last_main_positions', {}) or {}
                 status["interrogation_results"] = getattr(self.server.core, 'last_interrogate', None)
                 status["gen_interrogation_results"] = getattr(self.server.core, 'last_gen_interrogate', None)
+                # Provide canonical category ordering so web UI can match
+                # the e-paper/top select menu order used by the device.
+                try:
+                    texts = getattr(self.server.core, 'texts', {}) or {}
+                    ch_order = ['CH0', 'CH4', 'CH1', 'CH5', 'CH2', 'CH6']
+                    category_order = []
+                    for k in ch_order:
+                        knob = texts.get(k)
+                        if knob and isinstance(knob, dict):
+                            title = knob.get('title')
+                            if title:
+                                category_order.append(title)
+                except Exception:
+                    category_order = []
+                status['category_order'] = category_order
             
             data = json.dumps(status).encode('utf-8')
             self.send_response(200)
@@ -245,10 +260,14 @@ class CameraManager:
     def stop(self):
         if self.server:
             try:
-                self.server.shutdown()
+                # Close the listening socket to prevent new connections and cause
+                # serve_forever() to exit. Do NOT call shutdown() as it blocks
+                # indefinitely if handler threads are active (e.g., streaming frames).
+                # The server_thread is a daemon, so it will exit when the main process
+                # exits; we just need to stop accepting new connections.
                 self.server.server_close()
             except Exception:
-                logger.debug("Error shutting down streaming server", exc_info=True)
+                logger.debug("Error closing streaming server", exc_info=True)
             self.server = None
         if self.picam2:
             try:
