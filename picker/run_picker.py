@@ -1,6 +1,7 @@
 """CLI runner for the picker app.
 
 Provides --simulate and --config options. In simulate mode, uses SimulatedMCP3008.
+Provides --rotary mode for single GPIO rotary encoder + pushbutton navigation.
 """
 import argparse
 import signal
@@ -10,7 +11,11 @@ import time
 import atexit
 
 from picker.hw import HW, SimulatedMCP3008, Calibration
-from picker.config import load_texts, DEFAULT_DISPLAY
+from picker.config import (
+    load_texts, load_menus, DEFAULT_DISPLAY,
+    DEFAULT_ROTARY_PIN_CLK, DEFAULT_ROTARY_PIN_DT, DEFAULT_ROTARY_PIN_SW,
+    DEFAULT_ROTARY_DEBOUNCE_MS,
+)
 from picker.core import PickerCore
 from picker.ui import compose_message, compose_overlay
 from picker.drivers.display_fast import blit, clear_display, close
@@ -24,6 +29,141 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+def _run_rotary(args) -> int:
+    """Run the picker using a single GPIO rotary encoder + pushbutton.
+
+    Loads menus from *args.config* (or the default sample file), initialises
+    either a real :class:`~picker.rotary_encoder.RotaryEncoder` or a
+    :class:`~picker.rotary_encoder.SimulatedRotaryEncoder`, then runs the
+    :class:`~picker.rotary_core.RotaryPickerCore` event loop.
+    """
+    from picker.rotary_encoder import RotaryEncoder, SimulatedRotaryEncoder
+    from picker.rotary_core import RotaryPickerCore
+    from picker.ui import compose_rotary_menu, compose_message
+    from picker.drivers.display_fast import init as display_init, blit, clear_display, close as display_close
+
+    rotate = None if args.rotate == 'none' else args.rotate
+
+    logger.info("Rotary encoder mode")
+    try:
+        menus = load_menus(args.config if args.config else None)
+        logger.info(f"Loaded {len(menus)} menus from config")
+    except Exception as e:
+        logger.error(f"Failed to load menus: {e}")
+        return 1
+
+    # Initialise encoder
+    if args.rotary_simulate:
+        logger.info("Using SimulatedRotaryEncoder (no hardware)")
+        encoder = SimulatedRotaryEncoder()
+    else:
+        try:
+            encoder = RotaryEncoder(
+                pin_clk=args.rotary_clk,
+                pin_dt=args.rotary_dt,
+                pin_sw=args.rotary_sw,
+                debounce_ms=args.rotary_debounce_ms,
+            )
+            logger.info(
+                f"RotaryEncoder initialised: CLK={args.rotary_clk} "
+                f"DT={args.rotary_dt} SW={args.rotary_sw} "
+                f"debounce={args.rotary_debounce_ms}ms"
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialise RotaryEncoder: {e}")
+            return 1
+
+    # Initialise display
+    display_ok = display_init(
+        spi_device=args.display_spi_device,
+        force_simulation=args.force_simulation,
+        rotate=rotate,
+    )
+    if not display_ok:
+        logger.warning("Display init failed - continuing in simulation mode")
+
+    effective_size = (args.display_w, args.display_h)
+    if rotate in ('CW', 'CCW'):
+        effective_size = (args.display_h, args.display_w)
+
+    def _do_display(title, items, selected_index):
+        """Render and blit a rotary menu image."""
+        try:
+            img = compose_rotary_menu(title, items, selected_index, full_screen=effective_size)
+            blit(img, "rotary-menu", rotate, "auto")
+        except Exception as exc:
+            logger.debug(f"Display update failed: {exc}")
+
+    def _do_action(action_name):
+        """Handle Go / Reset actions."""
+        logger.info(f"Action triggered: {action_name}")
+        try:
+            msg = "GO!" if action_name == "Go" else "RESETTING"
+            img = compose_message(msg, full_screen=effective_size)
+            blit(img, action_name.lower(), rotate, "auto")
+            time.sleep(2.0)
+        except Exception as exc:
+            logger.debug(f"Action display failed: {exc}")
+
+    core = RotaryPickerCore(
+        menus=menus,
+        on_display=_do_display,
+        on_action=_do_action,
+    )
+
+    # Show startup banner
+    try:
+        img = compose_message("Starting...", full_screen=effective_size)
+        blit(img, "starting", rotate, "auto")
+        time.sleep(1.0)
+    except Exception:
+        pass
+
+    logger.info("Rotary picker running — press Ctrl-C to stop")
+
+    running = True
+
+    def _shutdown(sig, frame):
+        nonlocal running
+        logger.info("Shutting down rotary picker...")
+        running = False
+
+    def _cleanup():
+        try:
+            encoder.cleanup()
+        except Exception:
+            pass
+        try:
+            clear_display()
+            time.sleep(0.5)
+            display_close()
+        except Exception:
+            pass
+
+    atexit.register(_cleanup)
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    try:
+        while running:
+            event = encoder.get_event()
+            if event is not None:
+                kind, value = event
+                if kind == "rotate":
+                    core.handle_rotate(int(value))
+                elif kind == "button":
+                    core.handle_button(bool(value))
+            else:
+                time.sleep(0.001)
+    except Exception as e:
+        logger.error(f"Rotary event loop error: {e}")
+        return 1
+    finally:
+        _cleanup()
+
+    return 0
 
 
 def main(argv=None):
@@ -46,12 +186,62 @@ def main(argv=None):
                    help="When running the calibrator via --run-calibrator, pass this as --settle-confirm to the calibrator. If omitted the calibrator default is used.")
     p.add_argument("--stream", action="store_true", help="Enable live camera MJPEG stream")
     p.add_argument("--stream-port", type=int, default=8088, help="Port for live camera stream (default 8088)")
+
+    # --- Rotary encoder mode ---
+    rotary_group = p.add_argument_group(
+        "Rotary encoder",
+        "Use a single GPIO rotary encoder + pushbutton instead of six ADC knobs. "
+        "Pass --rotary to enable; optionally override the BCM GPIO pin numbers below.",
+    )
+    rotary_group.add_argument(
+        "--rotary",
+        action="store_true",
+        help="Enable single rotary encoder navigation (replaces ADC knobs)",
+    )
+    rotary_group.add_argument(
+        "--rotary-simulate",
+        action="store_true",
+        help="Use SimulatedRotaryEncoder (no hardware required; for testing)",
+    )
+    rotary_group.add_argument(
+        "--rotary-clk",
+        type=int,
+        default=DEFAULT_ROTARY_PIN_CLK,
+        metavar="BCM_PIN",
+        help=f"BCM GPIO pin for rotary CLK/A output (default {DEFAULT_ROTARY_PIN_CLK})",
+    )
+    rotary_group.add_argument(
+        "--rotary-dt",
+        type=int,
+        default=DEFAULT_ROTARY_PIN_DT,
+        metavar="BCM_PIN",
+        help=f"BCM GPIO pin for rotary DT/B output (default {DEFAULT_ROTARY_PIN_DT})",
+    )
+    rotary_group.add_argument(
+        "--rotary-sw",
+        type=int,
+        default=DEFAULT_ROTARY_PIN_SW,
+        metavar="BCM_PIN",
+        help=f"BCM GPIO pin for rotary SW (pushbutton, default {DEFAULT_ROTARY_PIN_SW})",
+    )
+    rotary_group.add_argument(
+        "--rotary-debounce-ms",
+        type=int,
+        default=DEFAULT_ROTARY_DEBOUNCE_MS,
+        metavar="MS",
+        help=f"Button debounce time in ms (default {DEFAULT_ROTARY_DEBOUNCE_MS})",
+    )
+
     args = p.parse_args(argv)
-    
+
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
         logger.info("Debug logging enabled")
-    
+
+    # Dispatch to the rotary encoder runner if requested
+    if args.rotary or args.rotary_simulate:
+        return _run_rotary(args)
+
     logger.info(f"Starting picker - ADC on CE{args.adc_spi_device}, Display on CE{args.display_spi_device}")
     
     texts = load_texts(args.config) if args.config else load_texts()
