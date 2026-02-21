@@ -94,11 +94,18 @@ def reinit(spi_device=0, force_simulation=False, rotate: str = None):
         _reinit_in_progress = False
 
 
-def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None, mode: str = 'auto') -> Path:
+def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None, mode: str = 'auto', prev_image_path: str = None) -> Path:
     """Write a full-screen bitmap to the real display if available; otherwise save to /tmp.
 
     Hardware setup: epaper display is on CE0. Uses standalone e-paper driver for 
     optimal performance and reliability.
+    
+    Args:
+        full_bitmap: Image to display
+        file_label: Label for logging/debugging
+        rotate: Rotation mode ('CW', 'CCW', 'flip', or None)
+        mode: Display mode ('auto', 'DU', 'partial', etc.)
+        prev_image_path: Path to previous image for partial refresh (enables true differential update)
     """
     global _display
     
@@ -131,14 +138,14 @@ def blit(full_bitmap: Image.Image, file_label: str = "frame", rotate: str = None
         # Try to update the actual display with requested mode
         if _display:
             try:
-                _display.display_image(img_to_send, mode=mode)
+                _display.display_image(img_to_send, mode=mode, prev_image_path=prev_image_path)
                 logger.debug(f"Display update completed ({mode}): {file_label}")
                 return None
             except Exception as e:
                 logger.error(f"Display update failed ({mode}): {e}")
                 # Fallback to auto mode if requested mode fails
                 try:
-                    _display.display_image(img_to_send, mode='auto')
+                    _display.display_image(img_to_send, mode='auto', prev_image_path=None)
                     logger.info(f"Fallback display update completed (auto): {file_label}")
                     return None
                 except Exception as e2:

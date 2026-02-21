@@ -50,6 +50,8 @@ def _run_rotary(args) -> int:
     try:
         menus = load_menus(args.config if args.config else None)
         logger.info(f"Loaded {len(menus)} menus from config")
+        for i, (title, values) in enumerate(menus):
+            logger.info(f"  Menu {i}: {title!r} with {len(values)} values: {values[:3]}{['...'] if len(values) > 3 else []}")
     except Exception as e:
         logger.error(f"Failed to load menus: {e}")
         return 1
@@ -88,11 +90,28 @@ def _run_rotary(args) -> int:
     if rotate in ('CW', 'CCW'):
         effective_size = (args.display_h, args.display_w)
 
+    # Track previous image for true partial refresh
+    prev_menu_image = [None]  # Use list for mutability
+
     def _do_display(title, items, selected_index):
-        """Render and blit a rotary menu image."""
+        """Render and blit a rotary menu image with partial refresh."""
         try:
+            logger.info(f"[DISPLAY] title={title!r}, showing item {selected_index} of {len(items)}: {items[selected_index] if selected_index < len(items) else '?'}")
             img = compose_rotary_menu(title, items, selected_index, full_screen=effective_size)
-            blit(img, "rotary-menu", rotate, "auto")
+            
+            # Save current image to temp file for next partial update
+            import tempfile
+            tmp_path = tempfile.gettempdir() + "/picker_rotary_menu.png"
+            img.save(tmp_path)
+            
+            # Use partial mode with previous image if available
+            if prev_menu_image[0] is not None:
+                blit(img, "rotary-menu", rotate, mode="partial", prev_image_path=prev_menu_image[0])
+            else:
+                # First display - use DU mode (fast 1-bit update)
+                blit(img, "rotary-menu", rotate, mode="DU")
+            
+            prev_menu_image[0] = tmp_path
         except Exception as exc:
             logger.debug(f"Display update failed: {exc}")
 
@@ -102,28 +121,48 @@ def _run_rotary(args) -> int:
         try:
             msg = "GO!" if action_name == "Go" else "RESETTING"
             img = compose_message(msg, full_screen=effective_size)
-            blit(img, action_name.lower(), rotate, "auto")
+            # Use full mode for action message (important status change)
+            blit(img, action_name.lower(), rotate, "full")
             time.sleep(2.0)
+            # Return to menu instead of staying stuck on action message
+            title, items, idx = core.current_display()
+            _do_display(title, items, idx)
         except Exception as exc:
             logger.debug(f"Action display failed: {exc}")
 
     core = RotaryPickerCore(
         menus=menus,
-        on_display=_do_display,
+        on_display=_do_display,  # Direct display (no throttling needed with queue draining)
         on_action=_do_action,
+        wrap=False,  # Disable wrap-around: stick at ends instead of wrapping to other end
     )
 
     # Show startup banner
     try:
         img = compose_message("Starting...", full_screen=effective_size)
-        blit(img, "starting", rotate, "auto")
+        blit(img, "starting", rotate, "full")
         time.sleep(1.0)
     except Exception:
         pass
 
+    # Refresh to show the actual menu after startup banner
+    try:
+        title, items, idx = core.current_display()
+        _do_display(title, items, idx)
+    except Exception as exc:
+        logger.debug(f"Failed to refresh menu after startup: {exc}")
+
     logger.info("Rotary picker running — press Ctrl-C to stop")
 
     running = True
+    event_count = 0
+    last_log_time = time.time()
+    cumulative_rotation = 0  # Track net rotation from queued events
+    rotation_threshold = 2  # Require N detents to move 1 menu item (finer control)
+    
+    # Directional momentum filtering (noise rejection for fast rotation)
+    rotation_history = []  # Recent rotation events for direction tracking
+    history_window = 10  # Track last N events
 
     def _shutdown(sig, frame):
         nonlocal running
@@ -148,17 +187,77 @@ def _run_rotary(args) -> int:
 
     try:
         while running:
-            event = encoder.get_event()
-            if event is not None:
+            # Drain ALL rotation events from queue and accumulate
+            # This prevents "scrolling continues after knob stops" problem
+            had_events = False
+            button_event = None
+            
+            while True:
+                event = encoder.get_event()
+                if event is None:
+                    break
+                
+                event_count += 1
+                had_events = True
                 kind, value = event
+                
                 if kind == "rotate":
-                    core.handle_rotate(int(value))
+                    rotation_value = int(value)
+                    
+                    # Directional momentum filtering: track recent events
+                    rotation_history.append(rotation_value)
+                    if len(rotation_history) > history_window:
+                        rotation_history.pop(0)
+                    
+                    # Calculate dominant direction from recent history
+                    if len(rotation_history) >= 3:
+                        recent_sum = sum(rotation_history[-5:])  # Last 5 events
+                        # If we have strong momentum in one direction, filter out noise
+                        if abs(recent_sum) >= 3:  # Strong directional momentum
+                            # Ignore events that oppose the momentum (likely noise)
+                            if (recent_sum > 0 and rotation_value < 0) or (recent_sum < 0 and rotation_value > 0):
+                                logger.debug(f"[Noise filter] Ignoring {rotation_value} event (momentum={recent_sum})")
+                                continue  # Skip this noisy event
+                    
+                    cumulative_rotation += rotation_value
+                    logger.debug(f"[Event #{event_count}] rotate={rotation_value}, cumulative={cumulative_rotation}")
                 elif kind == "button":
-                    core.handle_button(bool(value))
-            else:
+                    button_event = bool(value)
+                    logger.debug(f"[Event #{event_count}] button={value}")
+            
+            # Apply cumulative rotation with threshold (finer control)
+            if cumulative_rotation != 0:
+                # Calculate how many menu items to move (accumulator / threshold)
+                movement = cumulative_rotation // rotation_threshold
+                remainder = cumulative_rotation % rotation_threshold
+                
+                if movement != 0:
+                    logger.debug(f"Applying rotation: {cumulative_rotation} detents -> {movement} items (remainder={remainder})")
+                    core.handle_rotate(movement)
+                    cumulative_rotation = remainder  # Keep remainder for next time
+                    logger.debug(f"  -> After rotate: cursor={core.cursor}, remaining={cumulative_rotation}")
+                else:
+                    logger.debug(f"Rotation accumulated: {cumulative_rotation}/{rotation_threshold} (need {rotation_threshold - abs(cumulative_rotation)} more)")
+            
+            # Handle button event if any
+            if button_event is not None:
+                core.handle_button(button_event)
+                logger.debug(f"  -> After button press={button_event}: state={core.state.name}, cursor={core.cursor}")
+            
+            # Small sleep to avoid busy-waiting
+            if not had_events:
                 time.sleep(0.001)
+            
+            # Log summary every 5 seconds
+            now = time.time()
+            if now - last_log_time >= 5.0:
+                logger.info(f"Event loop: {event_count} events processed in last {now - last_log_time:.1f}s, current state={core.state.name} cursor={core.cursor}")
+                event_count = 0
+                last_log_time = now
     except Exception as e:
         logger.error(f"Rotary event loop error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return 1
     finally:
         _cleanup()

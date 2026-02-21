@@ -89,8 +89,14 @@ class WaveshareDisplay:
             except Exception as e:
                 logger.error(f"Clear failed: {e}")
     
-    def display_image(self, image: Union[Image.Image, str], mode='auto'):
-        """Display an image."""
+    def display_image(self, image: Union[Image.Image, str], mode='auto', prev_image_path: str = None):
+        """Display an image.
+        
+        Args:
+            image: PIL Image or path to image file
+            mode: Display mode ('auto', 'DU', 'partial', etc.)
+            prev_image_path: Path to previous image for partial refresh
+        """
         if isinstance(image, str):
             img_path = image
         else:
@@ -100,13 +106,14 @@ class WaveshareDisplay:
             img_path = temp_path
         
         try:
-            logger.info(f"Displaying image with waveshare (mode: {mode})")
+            logger.info(f"Displaying image with waveshare (mode: {mode}, has_prev: {prev_image_path is not None})")
             regions = display_image(
                 img_path, 
                 device=self.device, 
                 virtual=self.virtual, 
                 mode=mode,
-                vcom=-2.06  # Use consistent VCOM
+                vcom=-2.06,  # Use consistent VCOM
+                prev_image_path=prev_image_path  # Enable true partial refresh
             )
             logger.info(f"Display update completed, regions: {regions}")
         except Exception as e:
