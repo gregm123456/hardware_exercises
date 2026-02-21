@@ -364,6 +364,37 @@ PYTHONPATH=. python picker/run_picker.py --generation-mode img2img \
 
 ---
 
+Running as a System Service
+---------------------------
+
+The picker can be run as a systemd service to start automatically on boot. Two service files are provided:
+
+- `picker_startup.service`: Standard mode with optional live stream.
+- `picker_camera_still_startup.service`: `img2img` mode (captures camera still on GO).
+
+### Switching Input Interfaces (Rotary vs. Knobs)
+
+The services can be toggled between the **single rotary encoder** interface and the **six-knob (ADC)** interface by modifying the `ExecStart` command in the service file.
+
+1.  **Edit the active service file**:
+    ```bash
+    sudo nano /etc/systemd/system/picker_camera_still_startup.service
+    # OR
+    sudo nano /etc/systemd/system/picker_startup.service
+    ```
+2.  **Modify the interface flag**:
+    - **To use the Rotary Encoder**: Ensure `--rotary` is present in the `ExecStart` line.
+    - **To use the Six Knobs (ADC)**: Remove the `--rotary` flag from the `ExecStart` line.
+3.  **Apply changes**:
+    ```bash
+    sudo systemctl daemon-reload
+    sudo systemctl restart picker_camera_still_startup  # or picker_startup
+    ```
+
+For detailed installation instructions, see [README_picker_startup.md](README_picker_startup.md) and [README_picker_camera_still_startup.md](README_picker_camera_still_startup.md).
+
+---
+
 Live camera streaming
 ---------------------
 The picker supports a live MJPEG stream of the camera view in parallel with

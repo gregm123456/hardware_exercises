@@ -58,8 +58,23 @@ The service runs the picker with the following settings:
 - User: gregm
 - Working Directory: /home/gregm/hardware_exercises
 - PYTHONPATH: /home/gregm/hardware_exercises:$PYTHONPATH
-- Command: /home/gregm/hardware_exercises/.venv/bin/python3 picker/run_picker.py --verbose
+- Command: /home/gregm/hardware_exercises/.venv/bin/python3 picker/run_picker.py --verbose --stream --stream-port 8088 --rotary
 - Restart: always (automatically restarts on failure)
+
+### Switching Input Interfaces (Rotary vs. Knobs)
+
+By default, the service is configured to use the **single rotary encoder** interface via the `--rotary` flag. If you wish to switch to the **six-knob (ADC)** interface:
+
+1. Edit the service file:
+   ```bash
+   sudo nano /etc/systemd/system/picker_startup.service
+   ```
+2. In the `ExecStart` line, remove the `--rotary` flag to use the knobs (MCP3008), or add it to use the encoder.
+3. Reload systemd and restart the service:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl restart picker_startup
+   ```
 
 ## Notes
 
