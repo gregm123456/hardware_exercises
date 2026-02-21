@@ -124,6 +124,7 @@ class StreamingHandler(BaseHTTPRequestHandler):
 
 class StreamingServer(socketserver.ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
+    daemon_threads = True
 
 
 class CameraManager:
