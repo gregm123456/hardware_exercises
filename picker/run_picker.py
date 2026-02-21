@@ -343,11 +343,21 @@ def _run_rotary(args) -> int:
 
             # Handle button event if any
             if button_event is not None:
-                rotary_core.handle_button(button_event)
-                logger.debug(f"  -> After button press={button_event}: state={rotary_core.state.name}, cursor={rotary_core.cursor}")
+                # Special case: if showing the main screen and button is pressed,
+                # directly trigger GO instead of entering the menu navigation.
+                # This allows the user to press the button at startup to generate
+                # an image without first navigating the menus.
+                if showing_main and button_event:
+                    logger.info("Button pressed on main screen - triggering GO")
+                    _do_action("Go")
+                    showing_main = False
+                    last_activity_time = time.time()
+                else:
+                    rotary_core.handle_button(button_event)
+                    logger.debug(f"  -> After button press={button_event}: state={rotary_core.state.name}, cursor={rotary_core.cursor}")
 
             # Track activity for the idle-to-main-screen timeout
-            if had_events:
+            if had_events and button_event is None:
                 last_activity_time = time.time()
                 showing_main = False
 
