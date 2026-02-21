@@ -1,25 +1,6 @@
 Picker — Design, implementation, and usage
 =========================================
 
-## ⚠️ IMPORTANT: Known Regression
-
-**During rotary encoder optimization (2026-02-21), core camera and image generation features were temporarily removed from the service configuration.**
-
-**MISSING FUNCTIONALITY**:
-- ❌ Live camera MJPEG streaming (port 8088)
-- ❌ Camera snapshot capture on "Go" button
-- ❌ Image-to-image generation with Stable Diffusion
-- ❌ Structured interrogation of images
-
-**WHAT WORKS**:
-- ✅ Rotary encoder navigation (fully optimized)
-- ✅ E-paper display with fast partial refresh
-- ✅ Menu selection and persistence
-
-**📖 See [FUNCTIONALITY_REGRESSION.md](FUNCTIONALITY_REGRESSION.md) for complete details and restoration roadmap.**
-
----
-
 This `picker/` package implements a small, standalone selection UI designed for
 headless hardware (Raspberry Pi + e-paper display) but with simulation paths so
 you can develop and test on a workstation.
@@ -126,15 +107,19 @@ When running as a service on Pi 5:
 
 - `ui.py` — UI composition utilities (Pillow).
   - `compose_overlay(title, values, selected_index, full_screen)` — 12-item
-    knob overlay with the selected item visually highlighted (ADC mode).
+    knob overlay with the selected item visually highlighted (ADC mode and
+    rotary submenu).
   - `compose_rotary_menu(title, items, selected_index, full_screen)` *(new)* —
     variable-length list with the selected item highlighted and a proportional
     scroll indicator on the right edge when the list is longer than the visible
-    window.
+    window.  Used for the rotary TOP_MENU navigation list.
   - `compose_main_screen(...)` and `compose_message(...)` — full-screen
     surfaces used for both modes.
 
-- `core.py` — picker application core event loop and state machine (ADC mode).
+- `core.py` — picker application core (`PickerCore`): display worker thread,
+  SD image generation, camera integration, main-screen composition and the
+  ADC-mode event loop.  Also used internally by the rotary encoder mode to
+  provide the same full application functionality.
 
 - `sd_client.py` — Stable Diffusion Web UI client used by the GO action.
 
@@ -251,7 +236,20 @@ instead (see *Running on hardware* below).
   trigger Go or Reset / return to top level.
 - **"↩ Return"** at the top of every submenu — go back to the top menu
   *without* changing the current selection for that category.
-- **List wraps** by default (rotate past the last item → jumps to the first).
+- **Wrap-around is disabled** — rotating past the last item stops at the end
+  (predictable boundary behaviour).
+
+### Display behaviour
+
+The e-paper content shown is identical to ADC-knob mode with two exceptions:
+
+| Situation | What the display shows |
+|-----------|------------------------|
+| Idle (no interaction for 3 s in TOP_MENU) | **Main screen** — placeholder/generated image + currently selected values for every category, identical to ADC mode |
+| TOP_MENU navigation (rotating or just entered) | **Navigation list** — rotary menu showing all category names + "Go" + "Reset", with the highlighted entry inverted |
+| SUBMENU (entered a category) | **Knob overlay** — exactly the same 12-item overlay used in ADC mode for that channel, with the currently selected item inverted |
+| After pressing Go | **"GO!" splash** → SD image generation starts → **main screen** updates when generation finishes (img2img: camera is captured first) |
+| After pressing Reset | **"RESETTING" splash** → display reinitialised → **main screen** |
 
 ### Debouncing
 
@@ -476,7 +474,8 @@ Test files:
 | `test_ui.py` | `compose_overlay` (size and visual selection sampling) |
 | `test_gamma.py` | Gamma-correction logic for SD image processing |
 | `test_gamma_integration.py` | Gamma integration with `sd_client.generate_image()` |
-| `test_rotary.py` *(new)* | `SimulatedRotaryEncoder` event injection; `RotaryPickerCore` navigation state machine (TOP_MENU / SUBMENU); `load_menus()` both formats; `compose_rotary_menu()` rendering |
+| `test_rotary.py` | `SimulatedRotaryEncoder` event injection; `RotaryPickerCore` navigation state machine (TOP_MENU / SUBMENU); `load_menus()` both formats; `compose_rotary_menu()` rendering |
+| `test_rotary_picker_integration.py` | Rotary ↔ `PickerCore` bridge: `ch_by_menu_idx` mapping; `_sync_hw_from_rotary` inversion and mapper state; `_do_display` TOP_MENU vs SUBMENU branching; `_do_action` Go/Reset delegation; idle-timeout guard conditions |
 
 All tests use simulated hardware (no physical ADC, GPIO, or display required)
 and should pass on macOS and Linux.
@@ -510,6 +509,34 @@ Design and implementation details
   stable for at least `_MIN_DEBOUNCE_S` (1 ms minimum, default 50 ms) before a
   press or release event is emitted. Only the *press* transition triggers
   navigation in `RotaryPickerCore`.
+
+### 3 — Rotary mode ↔ PickerCore bridge
+
+The rotary encoder mode uses `RotaryPickerCore` purely for navigation input
+(rotate/press events) and delegates all application logic to the same
+`PickerCore` instance used by ADC mode.  The bridge in `_run_rotary()` works
+as follows:
+
+1. **Shared `HW` instance** — a `SimulatedMCP3008` is created and wired into
+   a standard `HW` object.  `PickerCore` reads knob positions through this
+   interface normally.
+2. **`_sync_hw_from_rotary()`** — whenever a submenu selection is saved, the
+   rotary item index is translated to an ADC display position using the same
+   inversion formula that `PickerCore` applies
+   (`adc_pos = (N-1) - item_idx`, default N=12) and injected directly into the
+   `SimulatedMCP3008` channel and the `KnobMapper` state, bypassing debounce
+   so the change is visible immediately.
+3. **`_do_display` branching** — the `RotaryPickerCore.on_display` callback
+   checks the current navigation state:
+   - `TOP_MENU` → enqueues a `compose_rotary_menu` image (navigation list).
+   - `SUBMENU` → enqueues a `compose_overlay` image for the relevant ADC
+     channel (identical to the ADC-mode knob overlay).
+4. **`_do_action` delegation** — "Go" calls `picker_core.handle_go()` and
+   "Reset" calls `picker_core.handle_reset()`, providing full SD generation,
+   camera capture, img2img, display reinitialization, and main-screen redraw.
+5. **Idle timeout (3 s)** — after 3 seconds of no encoder activity while in
+   `TOP_MENU`, `picker_core.show_main()` is called to return the display to the
+   main screen, mirroring the ADC-mode overlay timeout.
 
 ### 3 — Display abstraction and updates
 
@@ -567,21 +594,21 @@ Files of interest (quick map)
 ------------------------------
 | File | Purpose |
 |------|---------|
-| `picker/run_picker.py` | CLI entrypoint (both modes) |
+| `picker/run_picker.py` | CLI entrypoint (both modes); `_run_rotary` bridges rotary encoder to full `PickerCore` |
 | `picker/config.py` | Config loader: `load_texts()` and `load_menus()` |
 | `picker/hw.py` | ADC hardware abstraction and simulation |
 | `picker/rotary_encoder.py` | GPIO rotary encoder driver + `SimulatedRotaryEncoder` |
 | `picker/rotary_core.py` | Rotary navigation state machine |
 | `picker/ROTARY_ENCODER_OPTIMIZATION.md` | **Detailed guide to rotary encoder optimizations and performance tuning** |
-| `picker/FUNCTIONALITY_REGRESSION.md` | **⚠️ CRITICAL: Documents camera/img2img features removed during rotary debugging** |
-| `picker/ui.py` | Image composition: `compose_overlay`, `compose_rotary_menu`, `compose_message` |
-| `picker/core.py` | ADC-mode app state machine / event loop |
+| `picker/ui.py` | Image composition: `compose_overlay`, `compose_rotary_menu`, `compose_main_screen`, `compose_message` |
+| `picker/core.py` | App state machine / event loop and `PickerCore` (used by both ADC and rotary modes) |
 | `picker/sd_client.py`, `picker/sd_config.py` | Stable Diffusion client and defaults |
 | `picker/drivers/` | Display drivers and factory |
 | `picker/setup_camera_tuning.sh` | Arducam Pivariety camera tuning symlink setup |
 | `picker/mcp3008_calibration.json` | Sample calibration file (ADC mode) |
 | `picker/sample_texts.json` | Sample menu configuration (CH-key format) |
-| `picker/tests/test_rotary.py` | Rotary encoder tests (37 unit tests) |
+| `picker/tests/test_rotary.py` | Rotary encoder and navigation state machine unit tests |
+| `picker/tests/test_rotary_picker_integration.py` | Rotary ↔ PickerCore bridge integration tests |
 | `picker/tests/test_hw_mapping.py` | ADC knob mapping tests |
 
 ---
