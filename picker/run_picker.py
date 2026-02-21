@@ -48,6 +48,7 @@ def _run_rotary(args) -> int:
     * SUBMENU: knob overlay identical to the ADC-mode overlay for that channel.
     * Go / Reset: full SD-generation / display-reinit via PickerCore.
     """
+    import tempfile
     from picker.rotary_encoder import RotaryEncoder, SimulatedRotaryEncoder
     from picker.rotary_core import RotaryPickerCore, NavState
     from picker.ui import compose_rotary_menu
@@ -166,18 +167,29 @@ def _run_rotary(args) -> int:
     # fires an initial _refresh_display() call, so the holder avoids a
     # NameError for that first call.
     rotary_core_holder = [None]
+    prev_menu_image = [None]  # Tracks last menu PNG path for partial (differential) refresh
 
     def _do_display(title, items, selected_index):
         """Render and blit the appropriate screen based on navigation state."""
         rc = rotary_core_holder[0]
         try:
             if rc is None or rc.state is NavState.TOP_MENU:
-                # Top-level navigation: show the rotary menu list so the user
-                # can see Go / Reset highlighted before pressing the button.
+                # Top-level navigation: show the rotary menu list with fast partial
+                # refresh so only the changed region (highlighted item) is redrawn.
                 img = compose_rotary_menu(title, items, selected_index, full_screen=effective_size)
+                # Save image for next differential update.
+                tmp_path = tempfile.gettempdir() + "/picker_rotary_menu.png"
+                img.save(tmp_path)
+                # Clear the queue to avoid a conflicting display-worker update.
                 with picker_core._display_queue_lock:
                     picker_core._display_queue.clear()
-                    picker_core._display_queue.append(("rotary-top", img, picker_core.rotate, 'DU'))
+                # Use partial refresh with the previous image for a fast,
+                # flicker-free update; fall back to DU on the very first render.
+                if prev_menu_image[0] is not None:
+                    blit(img, "rotary-menu", rotate, mode="partial", prev_image_path=prev_menu_image[0])
+                else:
+                    blit(img, "rotary-menu", rotate, mode="DU")
+                prev_menu_image[0] = tmp_path
             else:
                 # SUBMENU: show an ADC-style knob overlay for this channel.
                 menu_idx = rc._active_menu_idx
@@ -215,6 +227,10 @@ def _run_rotary(args) -> int:
                 with picker_core._display_queue_lock:
                     picker_core._display_queue.clear()
                     picker_core._display_queue.append(("rotary-sub", img, picker_core.rotate, 'FAST'))
+                # Screen now shows the submenu overlay; reset so the next
+                # TOP_MENU render starts with a full DU update (not a diff
+                # against a stale menu image).
+                prev_menu_image[0] = None
         except Exception as exc:
             logger.debug(f"Display update failed: {exc}")
 
@@ -366,6 +382,7 @@ def _run_rotary(args) -> int:
                     and (now - last_activity_time) > idle_timeout):
                 try:
                     _sync_hw_from_rotary(rotary_core)
+                    prev_menu_image[0] = None  # main screen replaces menu; reset for next TOP_MENU render
                     picker_core.show_main()
                     showing_main = True
                 except Exception as exc:

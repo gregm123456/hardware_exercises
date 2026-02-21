@@ -173,34 +173,26 @@ class TestSyncHwFromRotary:
 # ---------------------------------------------------------------------------
 
 class TestDoDisplayTopMenu:
-    def test_top_menu_enqueues_rotary_menu_image(self):
-        """In TOP_MENU state, _do_display should enqueue a 'rotary-top' job."""
+    def _make_do_display(self, menus, texts, ch_by_menu_idx, effective_size,
+                         picker_core, rotary_core_holder, blit_calls, prev_menu_image):
+        """Build an inline _do_display matching the partial-refresh pattern in _run_rotary."""
+        import tempfile
         from picker.ui import compose_rotary_menu, compose_overlay
-        menus = load_menus()
-        texts = load_texts()
-        ch_by_menu_idx = _build_ch_by_menu_idx(texts)
-        sim_adc, hw = _make_hw()
-        effective_size = (800, 600)
-
-        queue = []
-        lock = threading.Lock()
-
-        # Minimal mock for picker_core
-        picker_core = MagicMock()
-        picker_core._display_queue = queue
-        picker_core._display_queue_lock = lock
-        picker_core.rotate = None
-
-        rotary_core_holder = [None]
 
         def _do_display(title, items, selected_index):
             rc = rotary_core_holder[0]
             try:
                 if rc is None or rc.state is NavState.TOP_MENU:
                     img = compose_rotary_menu(title, items, selected_index, full_screen=effective_size)
+                    tmp_path = tempfile.gettempdir() + "/picker_rotary_menu_test.png"
+                    img.save(tmp_path)
                     with picker_core._display_queue_lock:
                         picker_core._display_queue.clear()
-                        picker_core._display_queue.append(("rotary-top", img, picker_core.rotate, 'DU'))
+                    if prev_menu_image[0] is not None:
+                        blit_calls.append(('partial', prev_menu_image[0], img))
+                    else:
+                        blit_calls.append(('DU', None, img))
+                    prev_menu_image[0] = tmp_path
                 else:
                     menu_idx = rc._active_menu_idx
                     ch = ch_by_menu_idx.get(menu_idx)
@@ -224,22 +216,119 @@ class TestDoDisplayTopMenu:
                     with picker_core._display_queue_lock:
                         picker_core._display_queue.clear()
                         picker_core._display_queue.append(("rotary-sub", img, picker_core.rotate, 'FAST'))
+                    prev_menu_image[0] = None  # screen changed; next TOP_MENU render uses full DU
             except Exception:
                 pass
 
-        rotary_core = RotaryPickerCore(
-            menus=menus,
-            on_display=_do_display,
-            wrap=False,
+        return _do_display
+
+    def test_top_menu_calls_blit_du_on_first_render(self):
+        """On first TOP_MENU render _do_display calls blit with DU mode (no previous image)."""
+        menus = load_menus()
+        texts = load_texts()
+        ch_by_menu_idx = _build_ch_by_menu_idx(texts)
+        effective_size = (800, 600)
+
+        queue = []
+        lock = threading.Lock()
+        blit_calls = []
+        prev_menu_image = [None]
+
+        picker_core = MagicMock()
+        picker_core._display_queue = queue
+        picker_core._display_queue_lock = lock
+        picker_core.rotate = None
+
+        rotary_core_holder = [None]
+        _do_display = self._make_do_display(
+            menus, texts, ch_by_menu_idx, effective_size,
+            picker_core, rotary_core_holder, blit_calls, prev_menu_image,
         )
+
+        rotary_core = RotaryPickerCore(menus=menus, on_display=_do_display, wrap=False)
         rotary_core_holder[0] = rotary_core
 
-        # Initial state is TOP_MENU; the last queued job should be 'rotary-top'
-        assert queue, "Expected at least one queued job after init"
-        tag, img, _, mode = queue[-1]
-        assert tag == "rotary-top"
+        # Initial state is TOP_MENU; blit should have been called with DU mode
+        assert blit_calls, "Expected blit to be called after init"
+        mode, prev_path, img = blit_calls[-1]
         assert mode == 'DU'
+        assert prev_path is None
         assert img.size == effective_size
+        # Queue must be cleared (not used for TOP_MENU direct blit)
+        assert not queue, "Queue should be empty after TOP_MENU direct blit"
+
+    def test_top_menu_calls_blit_partial_on_subsequent_renders(self):
+        """After the first render, TOP_MENU uses partial mode with the previous image path."""
+        import os
+        menus = load_menus()
+        texts = load_texts()
+        ch_by_menu_idx = _build_ch_by_menu_idx(texts)
+        effective_size = (800, 600)
+
+        queue = []
+        lock = threading.Lock()
+        blit_calls = []
+        prev_menu_image = [None]
+
+        picker_core = MagicMock()
+        picker_core._display_queue = queue
+        picker_core._display_queue_lock = lock
+        picker_core.rotate = None
+
+        rotary_core_holder = [None]
+        _do_display = self._make_do_display(
+            menus, texts, ch_by_menu_idx, effective_size,
+            picker_core, rotary_core_holder, blit_calls, prev_menu_image,
+        )
+
+        rotary_core = RotaryPickerCore(menus=menus, on_display=_do_display, wrap=False)
+        rotary_core_holder[0] = rotary_core
+
+        # Simulate a second rotation in TOP_MENU
+        prev_count = len(blit_calls)
+        rotary_core._refresh_display()
+
+        # Second call should use partial mode with the path saved from first call
+        assert len(blit_calls) > prev_count, "Expected another blit call after second render"
+        mode, prev_path, img = blit_calls[-1]
+        assert mode == 'partial'
+        assert prev_path is not None
+        assert os.path.exists(prev_path)
+        assert img.size == effective_size
+
+    def test_top_menu_prev_image_reset_on_submenu_entry(self):
+        """After a SUBMENU display, prev_menu_image is reset so next TOP_MENU uses DU."""
+        menus = load_menus()
+        texts = load_texts()
+        ch_by_menu_idx = _build_ch_by_menu_idx(texts)
+        effective_size = (800, 600)
+
+        queue = []
+        lock = threading.Lock()
+        blit_calls = []
+        prev_menu_image = [None]
+
+        picker_core = MagicMock()
+        picker_core._display_queue = queue
+        picker_core._display_queue_lock = lock
+        picker_core.rotate = None
+
+        rotary_core_holder = [None]
+        _do_display = self._make_do_display(
+            menus, texts, ch_by_menu_idx, effective_size,
+            picker_core, rotary_core_holder, blit_calls, prev_menu_image,
+        )
+
+        rotary_core = RotaryPickerCore(menus=menus, on_display=_do_display, wrap=False)
+        rotary_core_holder[0] = rotary_core
+
+        # After init (TOP_MENU), prev_menu_image should be set
+        assert prev_menu_image[0] is not None
+
+        # Enter submenu → should reset prev_menu_image
+        rotary_core.handle_button(True)
+        assert rotary_core.state is NavState.SUBMENU
+        assert prev_menu_image[0] is None, "prev_menu_image must be None after SUBMENU display"
 
 
 # ---------------------------------------------------------------------------
