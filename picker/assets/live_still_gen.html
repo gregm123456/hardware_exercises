@@ -251,6 +251,19 @@
             }
         }
 
+        async function checkLiveStream() {
+            const liveStreamImg = document.querySelector('.live-stream img');
+            try {
+                const response = await fetch('/stream.mjpg', { method: 'HEAD' });
+                if (response.ok) {
+                    // Stream is available, reload the image
+                    liveStreamImg.src = '/stream.mjpg?t=' + Date.now();
+                }
+            } catch (e) {
+                // Silently fail - stream might not be ready yet
+            }
+        }
+
         // Initially load
         updateTime();
         pollImages();
@@ -260,6 +273,9 @@
         setInterval(pollImages, 500);
         setInterval(pollStatus, 500);
         setInterval(updateTime, 1000);
+
+        // Check live stream availability every 2 seconds
+        setInterval(checkLiveStream, 2000);
     </script>
 </body>
 </html>
