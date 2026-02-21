@@ -196,6 +196,8 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
     if placeholder_path:
         try:
             placeholder_img = Image.open(placeholder_path).convert('L')
+            # Flip the generated image horizontally before resizing/pasting
+            placeholder_img = placeholder_img.transpose(Image.FLIP_LEFT_RIGHT)
         except Exception:
             placeholder_img = None
 
