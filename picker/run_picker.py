@@ -17,7 +17,7 @@ from picker.config import (
     DEFAULT_ROTARY_DEBOUNCE_MS,
 )
 from picker.core import PickerCore
-from picker.ui import compose_message, compose_overlay
+from picker.ui import compose_message
 from picker.drivers.display_fast import blit, clear_display, close
 
 # Set up logging
@@ -45,7 +45,7 @@ def _run_rotary(args) -> int:
     * Default (idle in TOP_MENU): main screen with image + current selections.
     * TOP_MENU navigation (rotating): rotary navigation list so the user can
       see Go / Reset highlighted before pressing the button.
-    * SUBMENU: knob overlay identical to the ADC-mode overlay for that channel.
+    * SUBMENU: rotary list with the saved selection marked and a trailing blank entry.
     * Go / Reset: full SD-generation / display-reinit via PickerCore.
     """
     import tempfile
@@ -191,46 +191,17 @@ def _run_rotary(args) -> int:
                     blit(img, "rotary-menu", rotate, mode="DU")
                 prev_menu_image[0] = tmp_path
             else:
-                # SUBMENU: show an ADC-style knob overlay for this channel.
-                menu_idx = rc._active_menu_idx
-                ch = ch_by_menu_idx.get(menu_idx)
-                _, submenu_values = rc.menus[menu_idx]
-
-                if selected_index == 0:
-                    # Cursor is on "↩ Return": highlight the saved selection.
-                    item_pos = rc.selections.get(menu_idx, 0)
-                else:
-                    item_pos = selected_index - 1  # offset by the Return entry
-
-                item_pos = max(0, min(len(submenu_values) - 1, item_pos))
-
-                # Prefer the full 12-item values list from texts so the overlay
-                # layout matches ADC mode exactly.  Fall back to the filtered
-                # submenu values if the channel isn't in the texts mapping.
-                if ch is not None:
-                    knob = texts.get(f"CH{ch}", {})
-                    ch_title = knob.get('title', title)
-                    ch_values = knob.get('values', submenu_values)
-                    # Map item_pos (index in filtered list) to index in full list
-                    # by looking up the selected label.
-                    selected_label = submenu_values[item_pos] if item_pos < len(submenu_values) else ""
-                    try:
-                        display_idx = ch_values.index(selected_label)
-                    except (ValueError, AttributeError):
-                        display_idx = item_pos
-                else:
-                    ch_title = title
-                    ch_values = submenu_values
-                    display_idx = item_pos
-
-                img = compose_overlay(ch_title, ch_values, display_idx, full_screen=effective_size)
+                # SUBMENU: render the list so "* " and the blank entry are visible.
+                img = compose_rotary_menu(title, items, selected_index, full_screen=effective_size)
+                tmp_path = tempfile.gettempdir() + "/picker_rotary_menu.png"
+                img.save(tmp_path)
                 with picker_core._display_queue_lock:
                     picker_core._display_queue.clear()
-                    picker_core._display_queue.append(("rotary-sub", img, picker_core.rotate, 'FAST'))
-                # Screen now shows the submenu overlay; reset so the next
-                # TOP_MENU render starts with a full DU update (not a diff
-                # against a stale menu image).
-                prev_menu_image[0] = None
+                if prev_menu_image[0] is not None:
+                    blit(img, "rotary-menu", rotate, mode="partial", prev_image_path=prev_menu_image[0])
+                else:
+                    blit(img, "rotary-menu", rotate, mode="DU")
+                prev_menu_image[0] = tmp_path
         except Exception as exc:
             logger.debug(f"Display update failed: {exc}")
 
