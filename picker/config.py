@@ -47,8 +47,8 @@ DEFAULT_DISPLAY = {
 # ---------------------------------------------------------------------------
 # Default GPIO BCM pin assignments for the rotary encoder
 # ---------------------------------------------------------------------------
-DEFAULT_ROTARY_PIN_CLK: int = 17  # CLK / A output
-DEFAULT_ROTARY_PIN_DT: int = 18   # DT  / B output
+DEFAULT_ROTARY_PIN_CLK: int = 22  # CLK / A output
+DEFAULT_ROTARY_PIN_DT: int = 23   # DT  / B output
 DEFAULT_ROTARY_PIN_SW: int = 27   # SW  (pushbutton, active-LOW)
 
 # Default button debounce time in milliseconds
