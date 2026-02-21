@@ -193,11 +193,25 @@
                 if (response.ok) {
                     const data = await response.json();
                     
-                    // Update interrogation results
+                    // Update interrogation results, ordering by the device's
+                    // canonical category order when available.
                     if (data.interrogation_results && !data.interrogation_results.error) {
                         const results = data.interrogation_results.results || {};
                         const tags = data.interrogation_results.general_tags || [];
-                        const winners = Object.values(results).map(r => r.winner);
+                        const order = data.category_order || [];
+                        // Map title -> winner
+                        const winnersMap = {};
+                        Object.keys(results).forEach(k => {
+                            const r = results[k];
+                            winnersMap[k] = (r && r.winner) ? r.winner : null;
+                        });
+                        // Build ordered winners list
+                        const winners = [];
+                        const added = new Set();
+                        order.forEach(t => {
+                            if (winnersMap[t]) { winners.push(winnersMap[t]); added.add(t); }
+                        });
+                        Object.keys(winnersMap).forEach(k => { if (!added.has(k) && winnersMap[k]) winners.push(winnersMap[k]); });
                         const all = [...winners, ...tags];
                         interrogationText.textContent = all.length > 0 ? all.join(', ') : '—';
                     } else if (data.interrogation_results && data.interrogation_results.error) {
@@ -206,22 +220,47 @@
                         interrogationText.textContent = '—';
                     }
 
-                    if (data.current_prompt) {
-                        let text = data.current_prompt;
-                        // Add general tags from generated image if available
-                        if (data.gen_interrogation_results && data.gen_interrogation_results.general_tags) {
-                            const tags = data.gen_interrogation_results.general_tags;
-                            if (tags.length > 0) {
-                                text += ', ' + tags.join(', ');
-                            }
-                        }
-                        promptText.textContent = text;
+                    // For the "What the Machine Made" panel prefer showing
+                    // structured interrogation winners (ordered) + general tags
+                    // when available. Otherwise fall back to the raw prompt.
+                    if (data.gen_interrogation_results && !data.gen_interrogation_results.error) {
+                        const results = data.gen_interrogation_results.results || {};
+                        const tags = data.gen_interrogation_results.general_tags || [];
+                        const order = data.category_order || [];
+                        const winnersMap = {};
+                        Object.keys(results).forEach(k => {
+                            const r = results[k];
+                            winnersMap[k] = (r && r.winner) ? r.winner : null;
+                        });
+                        const winners = [];
+                        const added = new Set();
+                        order.forEach(t => {
+                            if (winnersMap[t]) { winners.push(winnersMap[t]); added.add(t); }
+                        });
+                        Object.keys(winnersMap).forEach(k => { if (!added.has(k) && winnersMap[k]) winners.push(winnersMap[k]); });
+                        const all = [...winners, ...tags];
+                        promptText.textContent = all.length > 0 ? all.join(', ') : (data.current_prompt || '—');
+                    } else if (data.current_prompt) {
+                        promptText.textContent = data.current_prompt;
                     } else {
                         promptText.textContent = '—';
                     }
                 }
             } catch (e) {
                 // Silently fail - endpoint might not be ready yet
+            }
+        }
+
+        async function checkLiveStream() {
+            const liveStreamImg = document.querySelector('.live-stream img');
+            try {
+                const response = await fetch('/stream.mjpg', { method: 'HEAD' });
+                if (response.ok) {
+                    // Stream is available, reload the image
+                    liveStreamImg.src = '/stream.mjpg?t=' + Date.now();
+                }
+            } catch (e) {
+                // Silently fail - stream might not be ready yet
             }
         }
 
@@ -234,6 +273,9 @@
         setInterval(pollImages, 500);
         setInterval(pollStatus, 500);
         setInterval(updateTime, 1000);
+
+        // Check live stream availability every 2 seconds
+        setInterval(checkLiveStream, 2000);
     </script>
 </body>
 </html>

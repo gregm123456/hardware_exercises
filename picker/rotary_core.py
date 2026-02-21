@@ -196,7 +196,8 @@ class RotaryPickerCore:
     def _top_level_items(self) -> List[str]:
         """Return the flat list shown at the top level."""
         names = [title for title, _ in self.menus]
-        return [_BACK_LABEL] + names + [_GO_LABEL, _RESET_LABEL]
+        # Place "Go" immediately after "Back", then the menus, then "Reset".
+        return [_BACK_LABEL, _GO_LABEL] + names + [_RESET_LABEL]
 
     def _submenu_items(self, menu_idx: int) -> List[str]:
         """Return the items list for a sub-menu, prefixed with Return.
@@ -242,7 +243,7 @@ class RotaryPickerCore:
     def _handle_top_select(self) -> None:
         items = self._top_level_items()
         n_menus = len(self.menus)
-
+        # New ordering: [Back, Go, <menus...>, Reset]
         if self._cursor == 0:
             # "Back" selected — return to main screen
             logger.info("Action: Back")
@@ -251,9 +252,17 @@ class RotaryPickerCore:
             except Exception:
                 logger.exception("on_action(Back) callback raised an exception")
 
-        elif 1 <= self._cursor <= n_menus:
-            # Enter the selected menu (offset by 1 for the Back entry)
-            self._active_menu_idx = self._cursor - 1
+        elif self._cursor == 1:
+            # "Go" selected (immediately after Back)
+            logger.info("Action: Go")
+            try:
+                self._on_action(_GO_LABEL)
+            except Exception:
+                logger.exception("on_action(Go) callback raised an exception")
+
+        elif 2 <= self._cursor <= 1 + n_menus:
+            # Enter the selected menu (offset by 2 for Back and Go entries)
+            self._active_menu_idx = self._cursor - 2
             self._state = NavState.SUBMENU
             # Start cursor at the item currently selected for this menu
             # (+1 because index 0 is "↩ Return")
@@ -267,16 +276,8 @@ class RotaryPickerCore:
             )
             self._refresh_display()
 
-        elif self._cursor == n_menus + 1:
-            # "Go" selected
-            logger.info("Action: Go")
-            try:
-                self._on_action(_GO_LABEL)
-            except Exception:
-                logger.exception("on_action(Go) callback raised an exception")
-
         elif self._cursor == n_menus + 2:
-            # "Reset" selected
+            # "Reset" selected (last item)
             logger.info("Action: Reset")
             try:
                 self._on_action(_RESET_LABEL)
