@@ -158,33 +158,75 @@ If you'd like, I can also:
 
 ## Picker Subproject
 
-The `picker/` folder contains a standalone UI application for selecting values using rotary knobs and buttons, designed for e-paper displays. It supports both simulation and real hardware modes.
+The `picker/` folder contains a standalone UI application for selecting values
+and triggering Stable Diffusion image generation, designed for headless
+Raspberry Pi + e-paper display hardware but with full simulation support for
+development on a workstation.
+
+### Input modes
+
+Two input strategies are supported and chosen at run time:
+
+| Mode | Hardware | CLI flag |
+|------|----------|----------|
+| **ADC knobs** (original) | MCP3008 ADC · six 12-position rotary knobs · GO + RESET buttons | *(default)* |
+| **Rotary encoder** (new) | One rotary encoder knob + pushbutton · five GPIO leads | `--rotary` |
+
+The rotary encoder replaces all six ADC knobs and both buttons with a single
+device. The user navigates a two-level hierarchical menu: rotate to scroll,
+press to enter/select. The top level shows all menu names plus "Go" and
+"Reset". Each submenu offers "↩ Return" to go back without changing the
+current selection.
 
 ### Key Features
-- **Live Camera Streaming**: Provides an MJPEG stream of the camera view. Enable it with the `--stream` flag (default port 8088).
-- **Stable Diffusion Integration**: Supports `txt2img` and `img2img` generation modes. In `img2img`, the camera captures a still image for processing.
-- **Calibration**: Interactive calibration for rotary knobs using `mcp3008_calibration.json`.
-- **Rotation Support**: Display content can be rotated (`CW`, `CCW`, `flip`) for portrait or landscape layouts.
-- **Systemd Services**: Includes `picker_startup.service` and `picker_camera_still_startup.service` for automatic startup.
+- **Rotary Encoder Input** (new): single GPIO encoder + pushbutton navigates
+  a hierarchical menu. Menus and items are fully configurable; no fixed count.
+- **Live Camera Streaming**: MJPEG stream of the camera view. Enable with
+  `--stream` (default port 8088). Works with both input modes.
+- **Stable Diffusion Integration**: `txt2img` and `img2img` generation modes.
+  In `img2img`, the camera captures a still image on each GO press.
+- **Calibration** (ADC mode): interactive calibration using
+  `mcp3008_calibration.json`. The rotary encoder requires no calibration.
+- **Flexible Config Format**: the new `menus`-list JSON format supports any
+  number of menus with any number of items per menu. The legacy CH-key format
+  (CH0…CH6 with exactly 12 items each) remains fully supported.
+- **Rotation Support**: display content can be rotated (`CW`, `CCW`, `flip`).
+- **Systemd Services**: `picker_startup.service` and
+  `picker_camera_still_startup.service` for automatic startup.
 
 ### Running the Picker
-1. **Install Requirements**:
-   ```bash
-   pip install -r picker/requirements.txt
-   ```
-2. **Run in Simulation Mode**:
-   ```bash
-   PYTHONPATH=. python picker/run_picker.py --simulate --display-w 800 --display-h 600
-   ```
-3. **Run on Hardware**:
-   ```bash
-   PYTHONPATH=. python picker/run_picker.py --display-w 1448 --display-h 1072 --display-spi-device 0
-   ```
-4. **Enable Live Streaming**:
-   ```bash
-   PYTHONPATH=. python picker/run_picker.py --stream
-   ```
+
+Install requirements:
+```bash
+pip install -r picker/requirements.txt
+```
+
+Simulate — ADC knob mode:
+```bash
+PYTHONPATH=. python picker/run_picker.py --simulate --display-w 800 --display-h 600
+```
+
+Simulate — rotary encoder mode (no hardware required):
+```bash
+PYTHONPATH=. python picker/run_picker.py --rotary-simulate --display-w 800 --display-h 600
+```
+
+On hardware — ADC knob mode:
+```bash
+PYTHONPATH=. python picker/run_picker.py --display-w 1448 --display-h 1072 --display-spi-device 0
+```
+
+On hardware — rotary encoder mode (default BCM pins 17/18/27):
+```bash
+PYTHONPATH=. python picker/run_picker.py --rotary --display-w 1448 --display-h 1072
+```
+
+Enable live camera streaming (works with both modes):
+```bash
+PYTHONPATH=. python picker/run_picker.py --stream
+PYTHONPATH=. python picker/run_picker.py --rotary --stream
+```
 
 ### Troubleshooting
 - Use `picker/diagnose_epaper.sh` to diagnose SPI and GPIO issues.
-- Refer to `picker/README.md` for detailed setup instructions.
+- Refer to `picker/README.md` for complete setup, wiring, and usage details.

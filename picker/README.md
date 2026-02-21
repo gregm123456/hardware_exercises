@@ -1,174 +1,289 @@
 Picker — Design, implementation, and usage
 =========================================
 
-This `picker/` package implements a small, standalone selection UI driven by six 12-position
-knobs and two buttons. It's designed for headless hardware (Raspberry Pi + MCP3008 ADC +
-e-paper display) but includes simulation paths so you can develop and test on a workstation.
+This `picker/` package implements a small, standalone selection UI designed for
+headless hardware (Raspberry Pi + e-paper display) but with simulation paths so
+you can develop and test on a workstation.
 
-This README explains the design, the implementation of each component, how to run the
-project (simulate or on-device), calibration and testing instructions, and developer notes.
+Two **input modes** are supported and can be chosen at run time:
+
+| Mode | Hardware | CLI flag |
+|------|----------|----------|
+| **ADC knobs** (original) | MCP3008 ADC · six 12-position rotary knobs · GO button (CH3) · RESET button (CH7) | *(default — no extra flag)* |
+| **Rotary encoder** (new) | One standard rotary encoder knob with integrated pushbutton · five leads to GPIO | `--rotary` |
+
+Both modes drive the same e-paper display and Stable Diffusion integration.
 
 Quick summary
 -------------
-- Purpose: provide a compact UI for selecting values from six 12-item lists using physical
-	rotary knobs (12 detents each) and two buttons (GO and RESET). The GO action uses a
-	Stable Diffusion client to generate an image that can be shown on the display.
-- Hardware: MCP3008 ADC (knobs), SPI-based e-paper display (IT8951 / Waveshare variants),
-	running on a Linux platform such as Raspberry Pi.
-- Simulation: all hardware paths are simulated so you can run and test on macOS/Linux
-	without connected hardware.
+- **Purpose**: provide a compact UI for selecting values from configurable
+  text lists and triggering image generation with Stable Diffusion.
+- **Hardware**: MCP3008 ADC knobs *or* a single GPIO rotary encoder;
+  SPI-based e-paper display (IT8951 / Waveshare variants); Raspberry Pi.
+- **Simulation**: all hardware paths (ADC, GPIO, display) are simulated so
+  you can run and test on macOS/Linux without connected hardware.
 
 Highlights
 ----------
-- Stable knob mapping with per-knob calibration to avoid oscillation between adjacent
-	detents.
-- Supports both `txt2img` and `img2img` generation modes. In `img2img` mode, the GO
-	action captures a camera still to use as the initial image.
-- **Live Stream**: Supports MJPEG video streaming of the camera view in parallel with
-    operation. Use the `--stream` flag to enable it (default port 8088).
-- Display abstraction that supports several backends: update_waveshare, IT8951 Python
-	package, a basic SPI implementation, and a simulated display used for development.
-- A minimal core loop that polls HW, composes overlay images with Pillow, and pushes
-	frames to the display adapter.
+- **Original ADC knob mode**: six 12-position knobs read via MCP3008; GO and
+  RESET as separate ADC-threshold buttons; per-knob calibration with hysteresis
+  to avoid flicker between detents.
+- **Rotary encoder mode** (new): one rotary encoder + pushbutton replaces all
+  six knobs and two buttons. The encoder navigates a two-level hierarchical menu:
+  rotate to scroll, press to enter/select. Menu count and item count are
+  unrestricted and set in the JSON config.
+- Supports both `txt2img` and `img2img` Stable Diffusion generation modes.
+- **Live Stream**: MJPEG camera stream available with `--stream` (default port 8088).
+- Display abstraction supports several backends: `update_waveshare`, IT8951
+  Python package, basic SPI implementation, and a simulated display for
+  development.
+- Minimal core loop: polls HW, composes overlay images with Pillow, pushes
+  frames to the display adapter.
+
+---
 
 Project layout and responsibilities
-----------------------------------
-Top-level files (important ones):
+------------------------------------
 
-- `run_picker.py` — CLI launcher. Handles arguments for simulation, display size,
-	calibration file, and starting the interactive calibrator. Entry point for running the
-	app.
-- `config.py` — loads sample texts and provides defaults for calibration and display
-	parameters. Contains `load_texts()` which validates the JSON structure (each knob has
-	12 values).
-- `mcp3008_calibration.json` — an example calibration file produced by the calibrator.
-- `picker_startup.service` / `picker_camera_still_startup.service` — systemd service
-	files for running the picker on boot (standard vs img2img modes).
-- `README_picker_startup.md` / `README_picker_camera_still_startup.md` — setup
-	instructions for the systemd services.
-- `setup_camera_tuning.sh` — helper to ensure the Arducam tuning JSON is correctly
-	linked. This is required for `libcamera` to function with specific modules.
+### Top-level files (important ones)
 
-### Raspberry Pi 5 Service Notes
+- `run_picker.py` — CLI launcher. Handles arguments for simulation, display
+  size, calibration file, and starting the interactive calibrator. Also
+  handles the new `--rotary` / `--rotary-simulate` flags.
+- `config.py` — loads menus/texts and provides defaults for calibration,
+  display parameters, and GPIO pin assignments. Key functions:
+  - `load_texts()` — validates the legacy CH-key JSON structure (each knob
+    has exactly 12 values); used by the ADC knob mode.
+  - `load_menus()` — accepts *both* the legacy CH-key format and the new
+    flexible `menus`-list format; used by the rotary encoder mode.
+- `mcp3008_calibration.json` — example calibration file produced by the
+  calibrator (ADC mode only).
+- `picker_startup.service` / `picker_camera_still_startup.service` —
+  systemd service files for running the picker on boot.
+- `README_picker_startup.md` / `README_picker_camera_still_startup.md` —
+  setup instructions for the systemd services.
+- `setup_camera_tuning.sh` — helper to ensure the Arducam tuning JSON is
+  correctly linked. Required for `libcamera` to function with specific modules.
+
+### Raspberry Pi 5 service notes
 When running as a service on Pi 5:
-- **Infinite Restarts**: Ensure your `.service` file uses `StartLimitIntervalSec=0` in the `[Unit]` section to allow the service to recover from hardware initialization races.
-- **Python Path**: If installing in a venv with system-site-packages, set `Environment=PYTHONPATH=/home/gregm/hardware_exercises` (or your project root) in the `[Service]` section.
-- **Tuning Files**: The Arducam tuning file (`arducam-pivariety.json`) must be available at `/usr/share/libcamera/ipa/rpi/vc4/` (or symlinked). Use `picker/systemd/tmpfiles.conf` to manage this persistently across reboots.
+- **Infinite Restarts**: Ensure your `.service` file uses
+  `StartLimitIntervalSec=0` in the `[Unit]` section to allow recovery from
+  hardware initialization races.
+- **Python Path**: If installing in a venv with system-site-packages, set
+  `Environment=PYTHONPATH=/home/<user>/hardware_exercises` in the `[Service]`
+  section.
+- **Tuning Files**: The Arducam tuning file (`arducam-pivariety.json`) must be
+  at `/usr/share/libcamera/ipa/rpi/vc4/` (or symlinked). Use
+  `picker/systemd/tmpfiles.conf` to manage this persistently across reboots.
 
-Core modules (package `picker/`):
+### Core modules (`picker/`)
 
-- `hw.py` — hardware abstraction layer.
-	- `SimulatedMCP3008`: simple in-memory ADC simulator for development and tests.
-	- `Calibration` dataclass: holds per-knob calibration breakpoints and settings.
-	- `KnobMapper`: maps raw ADC values to discrete positions (0..11) with hysteresis and
-		a stability counter (debounce) to avoid flicker.
-	- `HW`: higher-level helper that exposes `read_positions()` and `read_buttons()` using
-		an ADC reader backend (simulator or real MCP3008).
+- `hw.py` — hardware abstraction layer (ADC knob mode).
+  - `SimulatedMCP3008`: in-memory ADC simulator.
+  - `Calibration` dataclass: per-knob calibration breakpoints and settings.
+  - `KnobMapper`: maps raw ADC values to discrete positions (0..11) with
+    hysteresis and a stability counter (debounce).
+  - `HW`: high-level helper exposing `read_positions()` and `read_buttons()`.
+
+- `rotary_encoder.py` *(new — rotary mode)* — GPIO driver for a standard
+  rotary encoder knob with integrated pushbutton.
+  - `RotaryEncoder`: polls GPIO at 1 kHz in a background thread; uses a
+    16-entry quadrature state machine for glitch-free step detection; applies
+    time-based software debounce to the pushbutton (default 50 ms).
+  - `SimulatedRotaryEncoder`: event-injection simulator for tests; API-
+    compatible with `RotaryEncoder`.
+  - Events emitted: `('rotate', +1)` CW, `('rotate', -1)` CCW,
+    `('button', True)` press, `('button', False)` release.
+
+- `rotary_core.py` *(new — rotary mode)* — navigation state machine.
+  - Two states: `TOP_MENU` and `SUBMENU`.
+  - Top level shows: `[menu_0_title, ..., menu_N_title, "Go", "Reset"]`.
+  - Submenu shows: `["↩ Return", item_0, ..., item_K]`.
+  - Press on a menu name → enter submenu; press "↩ Return" → go back without
+    changing selection; press an item → save selection and return to top level.
+  - Press "Go" or "Reset" at top level → fires callback.
+  - `RotaryPickerCore.get_current_values()` → `{menu_title: selected_value}`.
 
 - `ui.py` — UI composition utilities (Pillow).
-	- `compose_overlay(title, values, selected_index, full_screen)`: creates the overlay
-		image used by the picker UI; selected item is visually highlighted (inverted).
-	- `compose_main_screen(...)` and `compose_message(...)`: full-screen main surface and
-		small message screens. These are device-resolution aware and scale fonts for
-		readability on e-paper.
+  - `compose_overlay(title, values, selected_index, full_screen)` — 12-item
+    knob overlay with the selected item visually highlighted (ADC mode).
+  - `compose_rotary_menu(title, items, selected_index, full_screen)` *(new)* —
+    variable-length list with the selected item highlighted and a proportional
+    scroll indicator on the right edge when the list is longer than the visible
+    window.
+  - `compose_main_screen(...)` and `compose_message(...)` — full-screen
+    surfaces used for both modes.
 
-- `core.py` — picker application core event loop and state machine.
-	- Polls `HW` for knob changes and button presses.
-	- Calls `compose_overlay` / `compose_main_screen` and writes frames to the display
-		adapter (partial updates or full refreshes as appropriate).
-	- Manages GO and RESET behavior; GO triggers the SD client logic to generate/receive an
-		image (in the current implementation, this is driven by `sd_client.py`).
+- `core.py` — picker application core event loop and state machine (ADC mode).
 
-- `sd_client.py` — small client used by GO action to call an SD Web UI server and
-	process returned images. Contains `_apply_gamma()` to adjust images for e-paper
-	readability.
+- `sd_client.py` — Stable Diffusion Web UI client used by the GO action.
 
-- `sd_config.py` — constants and defaults used by `sd_client` (e.g., server URL,
-	EPAPER_GAMMA). This file is intentionally decoupled from runtime config so tests can
-	mock it easily.
+- `sd_config.py` — constants and defaults used by `sd_client` (server URL,
+  `EPAPER_GAMMA`, generation parameters).
 
-Driver folder (`picker/drivers/`):
+### Driver folder (`picker/drivers/`)
 
-- `display_fast.py` — a compact display adapter used by `core.py`. It wraps a
-	`create_display(...)` factory and provides safe re-init, a lock around blits, and
-	helper functions for partial/full updates and clearing the display. Also supports a
-	filesystem-backed simulation mode that writes frames to `/tmp/picker_display` for
-	debugging.
-- `epaper_enhanced.py` — display factory that tries to pick the best available driver:
-	1. `update_waveshare` package (preferred)
-	2. `IT8951` package
-	3. Basic SPI implementation (bundled)
-	4. `SimulatedDisplay` fallback
-	The module exports driver classes for each implementation and a `create_display()`
-	convenience function.
-- `epaper_standalone.py` — a self-contained IT8951 implementation (SPI + simple
-	command set). Used when external dependencies aren't available.
+- `display_fast.py` — compact display adapter used by both modes; wraps a
+  `create_display(...)` factory and serializes blits with a lock.
+- `epaper_enhanced.py` — display factory: tries `update_waveshare` → IT8951 →
+  basic SPI → `SimulatedDisplay`.
+- `epaper_standalone.py` — self-contained IT8951 implementation used when
+  external dependencies aren't available.
 
-Tests and development
----------------------
-- `picker/tests/` contains unit and integration tests:
-	- `test_hw_mapping.py` — checks `KnobMapper` mapping, hysteresis, and the
-		`SimulatedMCP3008` behavior.
-	- `test_ui.py` — sanity checks for `compose_overlay` (size and visual selection
-		sampling).
-	- `test_gamma.py`, `test_gamma_integration.py` — verify the gamma correction logic
-		used for SD image processing.
+---
 
-Design and implementation details
----------------------------------
+Configuration / JSON format
+-----------------------------
 
-1) Knob mapping and stability
+### Legacy CH-key format (ADC knob mode and backward-compatible)
 
-- Each knob is read via the MCP3008 ADC (0..1023 default). The `KnobMapper` converts
-	raw ADC values to a normalized voltage and then maps that voltage to one of 12
-	discrete positions.
-- Per-knob calibration allows asymmetrical or non-linear breakpoints. The calibrator
-	measures voltages for each detent and stores the per-channel voltage breakpoints in
-	a JSON calibration file (see `mcp3008_calibration.json`).
-- Hysteresis: mapping thresholds use midpoints between calibrated positions. A
-	stability counter (`stable_required`) forces N consecutive maps to the same value
-	before reporting a change. This prevents oscillation when hardware is noisy.
+Used by `load_texts()` (and also accepted by `load_menus()`). Requires exactly
+six channel keys (`CH0`, `CH1`, `CH2`, `CH4`, `CH5`, `CH6`) each with exactly
+12 values:
 
-2) Display abstraction and updates
+```json
+{
+  "meta": { "version": "1.0" },
+  "CH0": { "title": "Colour", "values": ["Red","Orange","Yellow","Green","Blue","Indigo","Violet","Black","White","Gray","Brown",""] },
+  "CH1": { "title": "Size",   "values": ["XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","7XL",""] }
+}
+```
 
-- The display factory tries to use the most capable driver available on the system
-	(update_waveshare -> IT8951 -> Basic SPI -> Simulation). This keeps device-specific
-	code out of the core logic.
-- `display_fast.py` exposes a global display instance behind a lock to serialize updates
-	and reinitializations. The adapter provides `blit()` (write single frames),
-	`partial_update()` (rect), `full_update()` and `clear_display()` helpers.
-- Simulation mode writes rendered frames to `/tmp/picker_display` and uses PIL to save
-	PNG frames; it also allows `--force-simulation` at the CLI.
+Empty strings `""` are allowed to deliberately leave a slot blank. The bundled
+`sample_texts.json` uses this format and is the default when no `--config` is
+given.
 
-3) Image handling (Stable Diffusion + e-paper)
+### New `menus`-list format (rotary encoder mode)
 
-- The picker supports two generation modes: `txt2img` (default) and `img2img`.
-- In `txt2img` mode, the selected knob values are used to construct a prompt for
-	generation.
-- In `img2img` mode, the GO action first captures a still image from a connected camera
-	(using `capture_still.py`) and then sends it along with the prompt to the SD server.
-- When GO is pressed, `core.py` calls into `sd_client.generate_image()` which
-	interacts with a Stable Diffusion Web UI server and writes a PNG image locally.
-- SD images are adjusted with `_apply_gamma(img, gamma)` to brighten midtones and
-	preserve dynamic range on monochrome/greyscale e-paper. The default gamma is in
-	`sd_config.EPAPER_GAMMA` (1.8 by default).
-- Generation parameters like `SD_STEPS`, `SD_CFG_SCALE`, and `SD_DENOISING_STRENGTH`
-	(used for img2img mode) are configured in `sd_config.py`.
+Accepted by `load_menus()`. Any number of menus; each menu may have any number
+of values (no fixed-length requirement). Blank strings are automatically
+filtered out:
 
-4) Performance considerations
+```json
+{
+  "menus": [
+    {"title": "Colour", "values": ["Red", "Blue", "Green"]},
+    {"title": "Style",  "values": ["Realistic", "Painterly", "Sketch", "Watercolour"]},
+    {"title": "Subject", "values": ["Portrait", "Landscape", "Abstract"]}
+  ]
+}
+```
 
-- Poll rates: `DEFAULT_DISPLAY['poll_hz']` and `max_partial_updates_per_sec` control
-	input polling and rate-limiting of partial updates to avoid over-driving the
-	display or CPU.
-- Partial updates are used where supported to speed responsiveness and avoid full
-	refresh flicker. When drivers don't support partial updates, full updates are used.
+Both formats can share the same JSON file. If a `"menus"` key is present,
+`load_menus()` uses it; otherwise it falls back to the CH-key format.
+
+---
+
+Rotary encoder input mode
+--------------------------
+
+### Hardware wiring
+
+Connect a standard incremental rotary encoder (with integrated pushbutton)
+using five leads — no external resistors needed (internal pull-ups are
+configured by the driver):
+
+| Lead | GPIO (BCM) | Notes |
+|------|-----------|-------|
+| GND  | Ground    | Common ground |
+| 3V3  | 3.3 V supply | Do not use 5 V |
+| CLK (A) | 17 (default) | Configurable with `--rotary-clk` |
+| DT  (B) | 18 (default) | Configurable with `--rotary-dt` |
+| SW      | 27 (default) | Active-LOW; configurable with `--rotary-sw` |
+
+**Raspberry Pi 5**: `RPi.GPIO` is not supported on Pi 5. Install `rpi-lgpio`
+instead (see *Running on hardware* below).
+
+### User interface flow
+
+```
+ ┌─────────────────────────────────────────────────────┐
+ │  TOP MENU                                           │
+ │  ──────────────────────────────────────────────     │
+ │    Sex/Gender          ← rotate to highlight        │
+ │  ▶ Age                 ← push to enter submenu      │
+ │    Socioeconomics                                   │
+ │    Politics                                         │
+ │    Race                                             │
+ │    Religion                                         │
+ │    Go                  ← triggers generation        │
+ │    Reset               ← triggers reset             │
+ └─────────────────────────────────────────────────────┘
+
+ ┌─────────────────────────────────────────────────────┐
+ │  Age                                                │
+ │  ──────────────────────────────────────────────     │
+ │    ↩ Return            ← push to go back unchanged  │
+ │    Young Adult                                      │
+ │  ▶ Adult               ← push to select             │
+ │    Middle-aged                                      │
+ │    Senior                                           │
+ │    ...                 (scroll indicator on right)  │
+ └─────────────────────────────────────────────────────┘
+```
+
+- **Rotate** — scroll through the visible list.
+- **Push** — enter the highlighted submenu / select the highlighted item /
+  trigger Go or Reset / return to top level.
+- **"↩ Return"** at the top of every submenu — go back to the top menu
+  *without* changing the current selection for that category.
+- **List wraps** by default (rotate past the last item → jumps to the first).
+
+### Debouncing
+
+| Signal | Method | Default |
+|--------|--------|---------|
+| Rotation | 16-entry quadrature state machine; invalid Gray-code transitions silently discarded | — |
+| Button   | Time-based: raw GPIO level must be stable for `debounce_ms` before event is emitted | 50 ms |
+| Polling  | Background thread at 1 kHz; safe on Pi; configurable with `--rotary-debounce-ms` | — |
+
+### Running with rotary encoder
+
+On hardware (default BCM pins 17/18/27):
+```bash
+PYTHONPATH=. python picker/run_picker.py --rotary
+```
+
+Custom GPIO pins:
+```bash
+PYTHONPATH=. python picker/run_picker.py --rotary \
+    --rotary-clk 23 --rotary-dt 24 --rotary-sw 25 \
+    --rotary-debounce-ms 30
+```
+
+Simulation (no hardware required — useful for development and CI):
+```bash
+PYTHONPATH=. python picker/run_picker.py --rotary-simulate
+```
+
+Custom config (flexible menus-list format):
+```bash
+PYTHONPATH=. python picker/run_picker.py --rotary --config my_menus.json
+```
+
+Full `--rotary` option reference:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--rotary` | — | Enable rotary encoder mode (replaces ADC knobs) |
+| `--rotary-simulate` | — | Use `SimulatedRotaryEncoder` (no GPIO; for testing) |
+| `--rotary-clk BCM_PIN` | 17 | BCM GPIO pin for CLK / A output |
+| `--rotary-dt  BCM_PIN` | 18 | BCM GPIO pin for DT  / B output |
+| `--rotary-sw  BCM_PIN` | 27 | BCM GPIO pin for SW (pushbutton) |
+| `--rotary-debounce-ms MS` | 50 | Button debounce window in milliseconds |
+
+All existing flags (`--config`, `--display-w`, `--display-h`,
+`--display-spi-device`, `--rotate`, `--force-simulation`, `--verbose`,
+`--generation-mode`, `--stream`, `--stream-port`) work unchanged with
+`--rotary`.
+
+---
 
 Running the project
 -------------------
-The package supports both simulated and real-hardware runs. On a development machine
-you'll typically run in simulation mode.
 
-1) Create a virtualenv and install requirements
+### 1. Create a virtualenv and install requirements
 
 ```bash
 python3 -m venv .venv
@@ -176,173 +291,246 @@ source .venv/bin/activate
 pip install -r picker/requirements.txt
 ```
 
-2) Smoke test config loader
+### 2. Smoke test config loader
 
 ```bash
+# Legacy CH-key validation
 python -m picker.config
-# Should print the loaded knob keys and exit if the JSON is valid.
+
+# New menus-list format (works with any valid JSON)
+python -c "from picker.config import load_menus; m = load_menus(); print(len(m), 'menus')"
 ```
 
-3) Run with simulation
+### 3. Run with simulation (ADC knob mode)
 
 ```bash
 PYTHONPATH=. python picker/run_picker.py --simulate --display-w 800 --display-h 600
 ```
 
-4) Run on-device (Raspberry Pi + hardware)
-
-Notes before running on a Pi:
-- Enable SPI in `raspi-config` (Interface Options -> SPI).
-- Ensure your user is in the `spi` and `gpio` groups:
-	```bash
-	sudo usermod -aG spi,gpio $USER
-	# Log out and back in for changes to take effect
-	```
-- **Camera setup for img2img mode**: If using an Arducam Pivariety camera, you need to create a camera tuning file symlink. The Raspberry Pi libcamera package doesn't include the required `arducam-pivariety.json` tuning file by default. Run the provided setup script to create the necessary symlink and make it persistent across updates:
-	```bash
-	chmod +x picker/setup_camera_tuning.sh
-	sudo ./picker/setup_camera_tuning.sh
-	```
-	This script backs up the working `arducam_64mp.json` tuning file, creates the required symlink, and configures systemd to restore it automatically after system updates. Without this setup, img2img mode will fail with camera initialization errors.
-- Install platform-specific extras:
-	- **Raspberry Pi 5**: The standard `RPi.GPIO` library is not supported. Use `rpi-lgpio` instead:
-		```bash
-		pip uninstall RPi.GPIO
-		pip install rpi-lgpio spidev
-		```
-	- **Raspberry Pi 4 and earlier**:
-		```bash
-		pip install RPi.GPIO spidev
-		```
-
-Example (on a Pi):
+### 4. Run with simulation (rotary encoder mode)
 
 ```bash
-# use appropriate venv with platform-specific packages installed
-PYTHONPATH=. python picker/run_picker.py --display-w 1448 --display-h 1072 --display-spi-device 0
+PYTHONPATH=. python picker/run_picker.py --rotary-simulate --display-w 800 --display-h 600
 ```
 
-To run in `img2img` mode:
+### 5. Run on hardware — Raspberry Pi
 
+Before running on a Pi:
+- Enable SPI in `raspi-config` (Interface Options → SPI).
+- Ensure your user is in `spi` and `gpio` groups:
+  ```bash
+  sudo usermod -aG spi,gpio $USER
+  # Log out and back in
+  ```
+- **Camera setup for img2img mode**: run the provided setup script for the
+  Arducam Pivariety tuning symlink:
+  ```bash
+  chmod +x picker/setup_camera_tuning.sh
+  sudo ./picker/setup_camera_tuning.sh
+  ```
+- Platform-specific GPIO library:
+  - **Raspberry Pi 5**:
+    ```bash
+    pip uninstall RPi.GPIO
+    pip install rpi-lgpio spidev
+    ```
+  - **Raspberry Pi 4 and earlier**:
+    ```bash
+    pip install RPi.GPIO spidev
+    ```
+
+ADC knob mode on Pi:
 ```bash
-PYTHONPATH=. python picker/run_picker.py --generation-mode img2img --display-w 1448 --display-h 1072
+PYTHONPATH=. python picker/run_picker.py \
+    --display-w 1448 --display-h 1072 --display-spi-device 0
 ```
 
-**Troubleshooting**: If you encounter display connectivity issues, run the diagnostic script:
+Rotary encoder mode on Pi (default pins):
+```bash
+PYTHONPATH=. python picker/run_picker.py --rotary \
+    --display-w 1448 --display-h 1072 --display-spi-device 0
+```
+
+img2img mode (captures camera still on each GO press):
+```bash
+PYTHONPATH=. python picker/run_picker.py --generation-mode img2img \
+    --display-w 1448 --display-h 1072
+```
+
+**Troubleshooting**: run the diagnostic script if display connectivity fails:
 ```bash
 ./picker/diagnose_epaper.sh
 ```
-This script checks SPI status, device permissions, and other common issues.
 
-Live Camera Streaming
+---
+
+Live camera streaming
 ---------------------
-The Picker supports a live MJPEG stream of the camera view, which can be viewed in a web browser or embedded in another application.
+The picker supports a live MJPEG stream of the camera view in parallel with
+operation. Works with both input modes.
 
-1) Enable the stream:
-   ```bash
-   PYTHONPATH=. python picker/run_picker.py --stream
-   ```
-   *Note: This works regardless of the `--generation-mode` setting. If enabled, the camera stays active to provide the live view.*
+Enable the stream:
+```bash
+PYTHONPATH=. python picker/run_picker.py --stream
+# Or with rotary encoder:
+PYTHONPATH=. python picker/run_picker.py --rotary --stream
+```
 
-2) View the stream:
-   - Direct link: `http://<RASPBERRY_PI_IP>:8088/stream.mjpg`
-   - Interactive preview: Open `picker/stream_preview.html` in your browser. You can enter the Pi's IP address in the UI to connect.
+View the stream:
+- Direct link: `http://<RASPBERRY_PI_IP>:8088/stream.mjpg`
+- Interactive preview: open `picker/stream_preview.html` in a browser and
+  enter the Pi's IP address.
 
-3) Embedding the stream:
-   You can embed the 512x512 square stream in any HTML page with:
-   ```html
-   <img src="http://<RASPBERRY_PI_IP>:8088/stream.mjpg" width="512" height="512">
-   ```
-   The camera uses hardware-level `scaler_crop` to provide a centered square view of the full sensor height, perfectly matching the input requirements for Stable Diffusion.
+Embed in an HTML page:
+```html
+<img src="http://<RASPBERRY_PI_IP>:8088/stream.mjpg" width="512" height="512">
+```
 
-Calibration
------------
-- Use the interactive calibrator to produce a per-device `mcp3008_calibration.json`.
+---
+
+Calibration (ADC knob mode only)
+---------------------------------
+Use the interactive calibrator to produce a per-device `mcp3008_calibration.json`:
 
 ```bash
 PYTHONPATH=. python picker/run_picker.py --run-calibrator --calibration my_cal.json
 ```
 
-- The calibrator will guide you through moving each knob to all 12 detents and will
-	output a JSON file containing per-channel voltage breakpoints. Use that file with
-	`--calibration` when running the picker.
+The calibrator guides you through all detents for each knob and writes a JSON
+file with per-channel voltage breakpoints. Use that file with `--calibration`
+when running the picker in ADC knob mode.
 
-Testing
--------
-- Unit tests: install pytest in your venv and run from the repo root:
+The rotary encoder does not require calibration — the quadrature state machine
+handles reliable step detection regardless of the specific encoder hardware.
+
+---
+
+Tests and development
+---------------------
+Install pytest and run all unit tests from the repo root:
 
 ```bash
 source .venv/bin/activate
 pytest -q picker/tests
 ```
 
-- The tests use the simulated ADC and simulated display where appropriate so they
-	should pass on macOS and Linux without hardware.
+Test files:
 
-Developer notes and next steps
-------------------------------
-- The `picker/ui.py` and `picker/drivers/*` modules are intentionally modular so you
-	can improve fonts, layout, or driver implementations without touching the core
-	state machine.
-- Suggested small improvements:
-	- Add a small CLI mode to dump frames to a file for UI debugging.
-	- Add an integration test that runs the core loop for a short period with simulated
-		inputs to smoke-test the whole pipeline.
+| File | What it covers |
+|------|----------------|
+| `test_hw_mapping.py` | `KnobMapper` mapping, hysteresis, `SimulatedMCP3008` |
+| `test_ui.py` | `compose_overlay` (size and visual selection sampling) |
+| `test_gamma.py` | Gamma-correction logic for SD image processing |
+| `test_gamma_integration.py` | Gamma integration with `sd_client.generate_image()` |
+| `test_rotary.py` *(new)* | `SimulatedRotaryEncoder` event injection; `RotaryPickerCore` navigation state machine (TOP_MENU / SUBMENU); `load_menus()` both formats; `compose_rotary_menu()` rendering |
 
-Security and content notes
---------------------------
-- The sample data in `sample_texts.json` contains demographic categories used as
-	example labels. The picker code treats these as arbitrary text values; any
-	deployment that uses potentially-sensitive labels should ensure it complies with
-	local policies and regulations.
+All tests use simulated hardware (no physical ADC, GPIO, or display required)
+and should pass on macOS and Linux.
 
-Files of interest (quick map)
-----------------------------
-- `picker/run_picker.py` — CLI entrypoint
-- `picker/config.py` — config and text loader
-- `picker/hw.py` — hardware abstraction and simulation
-- `picker/ui.py` — image composition
-- `picker/core.py` — app state machine / event loop
-- `picker/sd_client.py`, `picker/sd_config.py` — Stable Diffusion client and defaults
-- `picker/drivers/` — display drivers and factory
-- `picker/setup_camera_tuning.sh` — setup script for Arducam Pivariety camera tuning file
-- `picker/mcp3008_calibration.json` — sample calibration file
+---
 
-Contact and license
--------------------
-See top-level repository `LICENSE` and project `README.md` for licensing and broader
-project context.
+Design and implementation details
+----------------------------------
 
-**Systemd drop-in for tmpfiles (required to prevent boot races)**
+### 1 — Knob mapping and stability (ADC mode)
 
-On some systems, libcamera may attempt to load camera tuning files before 
-`systemd-tmpfiles` has fully created the symlinks or restored files configured in 
-`/etc/tmpfiles.d`. This results in a critical race condition where the service 
-fails with a `zlib decompression` error (or `incorrect header check`) because it 
-tries to read a missing or partially formed symlink.
+- Each knob is read via the MCP3008 ADC (0..1023 default). `KnobMapper`
+  converts raw ADC values to a normalized voltage and maps it to one of 12
+  discrete positions.
+- Per-knob calibration allows asymmetrical or non-linear breakpoints. The
+  calibrator measures voltages for each detent and stores per-channel voltage
+  breakpoints in a JSON calibration file.
+- Hysteresis: mapping thresholds use midpoints between calibrated positions.
+  A stability counter (`stable_required`) forces N consecutive maps to the same
+  value before reporting a change, preventing oscillation on noisy hardware.
 
-To fix this reliably, we use a systemd drop-in that promotes the dependency to 
-a hard `Requires`, ensuring the picker service only starts after 
-`systemd-tmpfiles-setup.service` has completed.
+### 2 — Rotary encoder step detection (rotary mode)
 
-Files added to the project:
-- `picker/systemd/tmpfiles.conf` — drop-in template (now uses `Requires`) to be installed under:
-	`/etc/systemd/system/picker_camera_still_startup.service.d/tmpfiles.conf`
-- `picker/install_systemd_dropin.sh` — helper installer script.
+- A 16-entry full-step quadrature table (`_STEP_TABLE` in `rotary_encoder.py`)
+  maps each 2-bit → 2-bit AB transition to `+1`, `−1`, or `0`. Transitions
+  that would require jumping more than one state (electrical glitches) always
+  map to `0` and are silently discarded.
+- A background thread polls both GPIO pins at 1 kHz. This is fast enough to
+  catch all detents while being light enough for continuous operation on a Pi.
+- The button uses a separate time-based debounce: the raw GPIO level must stay
+  stable for at least `_MIN_DEBOUNCE_S` (1 ms minimum, default 50 ms) before a
+  press or release event is emitted. Only the *press* transition triggers
+  navigation in `RotaryPickerCore`.
 
-Installation (on the target machine):
+### 3 — Display abstraction and updates
 
+- The display factory tries the most capable driver available:
+  `update_waveshare` → IT8951 → basic SPI → `SimulatedDisplay`.
+- `display_fast.py` exposes a global display instance behind a lock to
+  serialize updates and reinitializations.
+- Simulation mode writes frames to `/tmp/picker_display` as PNG files.
+
+### 4 — Image handling (Stable Diffusion + e-paper)
+
+- `txt2img` mode: selected values construct a prompt for generation.
+- `img2img` mode: GO captures a camera still then sends it with the prompt.
+- `_apply_gamma(img, gamma)` brightens midtones for monochrome e-paper.
+  Default gamma is `sd_config.EPAPER_GAMMA` (1.8).
+
+### 5 — Performance
+
+- ADC mode poll rate: `DEFAULT_DISPLAY['poll_hz']` (80 Hz default).
+- Rotary encoder poll: 1 kHz background thread (separate from display loop).
+- Display rate-limiting: `max_partial_updates_per_sec` caps display writes to
+  avoid over-driving e-paper.
+
+---
+
+Systemd drop-in for tmpfiles (required on some Pi setups)
+----------------------------------------------------------
+On some systems, libcamera may attempt to load camera tuning files before
+`systemd-tmpfiles` has fully created symlinks, causing a boot race. A systemd
+drop-in (`Requires=systemd-tmpfiles-setup.service`) resolves this:
+
+Files:
+- `picker/systemd/tmpfiles.conf` — drop-in template
+- `picker/install_systemd_dropin.sh` — helper installer
+
+Installation:
 ```bash
-# make installer executable (one-time)
 chmod +x picker/install_systemd_dropin.sh
-
-# run installer as root to place the drop-in and reload systemd
 sudo ./picker/install_systemd_dropin.sh
-
-# verify service
 sudo systemctl status picker_camera_still_startup.service --no-pager
 ```
 
-The installer copies the drop-in, reloads systemd, and restarts the picker
-service. This ensures `/etc/tmpfiles.d/arducam-pivariety.conf` (created by the
-camera tuning setup) is applied before the picker service starts.
+---
+
+Security and content notes
+---------------------------
+The sample data in `sample_texts.json` contains demographic categories used as
+example labels. The picker code treats these as arbitrary text values; any
+deployment that uses potentially-sensitive labels should ensure it complies with
+local policies and regulations.
+
+---
+
+Files of interest (quick map)
+------------------------------
+| File | Purpose |
+|------|---------|
+| `picker/run_picker.py` | CLI entrypoint (both modes) |
+| `picker/config.py` | Config loader: `load_texts()` and `load_menus()` |
+| `picker/hw.py` | ADC hardware abstraction and simulation |
+| `picker/rotary_encoder.py` | GPIO rotary encoder driver + `SimulatedRotaryEncoder` |
+| `picker/rotary_core.py` | Rotary navigation state machine |
+| `picker/ui.py` | Image composition: `compose_overlay`, `compose_rotary_menu`, `compose_message` |
+| `picker/core.py` | ADC-mode app state machine / event loop |
+| `picker/sd_client.py`, `picker/sd_config.py` | Stable Diffusion client and defaults |
+| `picker/drivers/` | Display drivers and factory |
+| `picker/setup_camera_tuning.sh` | Arducam Pivariety camera tuning symlink setup |
+| `picker/mcp3008_calibration.json` | Sample calibration file (ADC mode) |
+| `picker/sample_texts.json` | Sample menu configuration (CH-key format) |
+| `picker/tests/test_rotary.py` | Rotary encoder tests (37 unit tests) |
+| `picker/tests/test_hw_mapping.py` | ADC knob mapping tests |
+
+---
+
+Contact and license
+--------------------
+See the top-level repository `LICENSE` and project `README.md` for licensing
+and broader project context.

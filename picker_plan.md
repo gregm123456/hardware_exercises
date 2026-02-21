@@ -1,3 +1,9 @@
+> **Status note**: The original six-knob ADC design has been fully implemented.
+> An alternative single GPIO rotary encoder + pushbutton input mode has also been
+> implemented (see `picker/rotary_encoder.py`, `picker/rotary_core.py`, and the
+> `--rotary` CLI flag in `picker/run_picker.py`).  Refer to `picker/README.md`
+> for current usage, wiring, configuration, and operation documentation.
+
 Design constraints and assumptions
 --------------------------------
 - The UI must be non-blocking: drawing and state transitions run on an event loop/value-polling loop with lightweight timers.
