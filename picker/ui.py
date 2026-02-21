@@ -636,6 +636,127 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
     return img
 
 
+def compose_rotary_menu(
+    title: str,
+    items: List[str],
+    selected_index: int,
+    full_screen: Tuple[int, int] = (DISPLAY_W, DISPLAY_H),
+    visible_rows: int = 0,
+) -> Image.Image:
+    """Compose a rotary-encoder navigation menu overlay.
+
+    Unlike :func:`compose_overlay`, this function works with *any* number of
+    items (not fixed at 12) and shows a scroll indicator when the list is
+    longer than the visible window.  The selected item is rendered inverted
+    (white text on black background) exactly as in :func:`compose_overlay`.
+
+    Parameters
+    ----------
+    title:
+        Heading shown at the top of the display (e.g. ``"Select Menu"`` or
+        the name of the currently open sub-menu).
+    items:
+        All navigable items in order.  May include special entries such as
+        ``"↩ Return"``, ``"Go"``, ``"Reset"``.
+    selected_index:
+        Zero-based index of the currently highlighted item.
+    full_screen:
+        ``(width, height)`` of the display in pixels.
+    visible_rows:
+        Maximum number of item rows to display at once.  ``0`` (default)
+        means auto-calculate based on available height.
+
+    Returns
+    -------
+    PIL.Image.Image
+        Grayscale (``"L"`` mode) image sized to *full_screen*.
+    """
+    w, h = full_screen
+    img = Image.new("L", (w, h), color=255)
+    draw = ImageDraw.Draw(img)
+
+    short_dim = min(w, h)
+    base_font_size = max(12, int(short_dim * DEFAULT_BASE_FONT_RATIO))
+    title_font_size = int(base_font_size * 1.2)
+    item_font_size = base_font_size
+
+    font_path = _choose_font_path()
+    try:
+        if font_path:
+            title_font = ImageFont.truetype(font_path, title_font_size)
+            item_font = ImageFont.truetype(font_path, item_font_size)
+        else:
+            raise Exception("no font path")
+    except Exception:
+        title_font = ImageFont.load_default()
+        item_font = ImageFont.load_default()
+
+    margin = int(base_font_size * 0.6)
+
+    # --- Title ---
+    y = margin
+    draw.text((margin, y), title, font=title_font, fill=0)
+    try:
+        title_h = title_font.getsize(title)[1]
+    except Exception:
+        title_h = title_font_size
+    y += title_h + int(base_font_size * 0.4)
+
+    # Thin separator line below title
+    draw.line([(margin, y), (w - margin, y)], fill=0, width=1)
+    y += int(base_font_size * 0.3)
+
+    # --- Item list ---
+    n = len(items)
+    item_h = max(18, int(base_font_size * 1.6))
+
+    # Auto-calculate visible_rows to fill available space
+    avail_h = h - y - margin
+    auto_rows = max(1, avail_h // item_h)
+    if visible_rows <= 0:
+        visible_rows = auto_rows
+    visible_rows = min(visible_rows, n)
+
+    # Scroll window: keep selected_index visible
+    scroll_start = max(0, selected_index - visible_rows + 1)
+    scroll_start = min(scroll_start, max(0, n - visible_rows))
+
+    side_pad = int(margin * 0.6)
+
+    for row in range(visible_rows):
+        item_idx = scroll_start + row
+        if item_idx >= n:
+            break
+        text = items[item_idx]
+        box_y0 = y + row * item_h
+        box_y1 = box_y0 + item_h
+        text_y = box_y0 + max(0, (item_h - item_font_size) // 2)
+
+        if item_idx == selected_index:
+            draw.rectangle((side_pad, box_y0, w - side_pad, box_y1), fill=0)
+            draw.text((margin, text_y), text, font=item_font, fill=255)
+        else:
+            draw.text((margin, text_y), text, font=item_font, fill=0)
+
+    # --- Scroll indicator (right edge) ---
+    if n > visible_rows:
+        bar_x = w - max(4, int(base_font_size * 0.3))
+        bar_y0 = y
+        bar_y1 = y + visible_rows * item_h
+        bar_h = bar_y1 - bar_y0
+
+        # Draw track
+        draw.rectangle((bar_x - 1, bar_y0, bar_x + 1, bar_y1), fill=200)
+
+        # Draw thumb proportional to scroll position
+        thumb_h = max(4, bar_h * visible_rows // n)
+        thumb_y0 = bar_y0 + (bar_h - thumb_h) * scroll_start // max(1, n - visible_rows)
+        thumb_y1 = thumb_y0 + thumb_h
+        draw.rectangle((bar_x - 2, thumb_y0, bar_x + 2, thumb_y1), fill=0)
+
+    return img
+
+
 if __name__ == "__main__":
     # quick visual smoke test
     title = "Sample Category"
@@ -643,3 +764,9 @@ if __name__ == "__main__":
     img = compose_overlay(title, vals, 3, full_screen=(800, 600))
     img.save("/tmp/picker_overlay.png")
     print("Wrote /tmp/picker_overlay.png")
+
+    # smoke test for rotary menu
+    rotary_items = ["↩ Return"] + [f"Option {i+1}" for i in range(15)]
+    img2 = compose_rotary_menu("Sub-Menu", rotary_items, 5, full_screen=(800, 600))
+    img2.save("/tmp/picker_rotary_menu.png")
+    print("Wrote /tmp/picker_rotary_menu.png")
