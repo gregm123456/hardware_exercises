@@ -37,16 +37,27 @@ def _run_rotary(args) -> int:
     Loads menus from *args.config* (or the default sample file), initialises
     either a real :class:`~picker.rotary_encoder.RotaryEncoder` or a
     :class:`~picker.rotary_encoder.SimulatedRotaryEncoder`, then runs the
-    :class:`~picker.rotary_core.RotaryPickerCore` event loop.
+    :class:`~picker.rotary_core.RotaryPickerCore` event loop backed by a
+    full :class:`~picker.core.PickerCore` instance for the complete
+    application interface (main screen, img2img, SD generation, streaming).
+
+    Display behaviour mirrors ADC-knob mode:
+    * Default (idle in TOP_MENU): main screen with image + current selections.
+    * TOP_MENU navigation (rotating): rotary navigation list so the user can
+      see Go / Reset highlighted before pressing the button.
+    * SUBMENU: knob overlay identical to the ADC-mode overlay for that channel.
+    * Go / Reset: full SD-generation / display-reinit via PickerCore.
     """
     from picker.rotary_encoder import RotaryEncoder, SimulatedRotaryEncoder
-    from picker.rotary_core import RotaryPickerCore
-    from picker.ui import compose_rotary_menu, compose_message
-    from picker.drivers.display_fast import init as display_init, blit, clear_display, close as display_close
+    from picker.rotary_core import RotaryPickerCore, NavState
+    from picker.ui import compose_rotary_menu
+    from picker.drivers.display_fast import clear_display, close as display_close
 
     rotate = None if args.rotate == 'none' else args.rotate
 
     logger.info("Rotary encoder mode")
+
+    # Load menus for RotaryPickerCore navigation
     try:
         menus = load_menus(args.config if args.config else None)
         logger.info(f"Loaded {len(menus)} menus from config")
@@ -55,6 +66,24 @@ def _run_rotary(args) -> int:
     except Exception as e:
         logger.error(f"Failed to load menus: {e}")
         return 1
+
+    # Load texts for PickerCore (full interface + img2img + SD generation)
+    try:
+        texts = load_texts(args.config if args.config else None)
+        logger.info("Loaded texts config for full PickerCore interface")
+    except Exception as e:
+        logger.error(f"Failed to load texts config: {e}")
+        return 1
+
+    # Build channel mapping: rotary menu_idx -> ADC channel number.
+    # load_menus with legacy CH-key format returns menus sorted by CH number,
+    # so the mapping is straightforward.
+    ch_keys = sorted(
+        (k for k in texts if isinstance(k, str) and k.startswith("CH")),
+        key=lambda k: int(k[2:]),
+    )
+    ch_by_menu_idx = {i: int(k[2:]) for i, k in enumerate(ch_keys)}
+    logger.info(f"Channel mapping: {ch_by_menu_idx}")
 
     # Initialise encoder
     if args.rotary_simulate:
@@ -77,80 +106,143 @@ def _run_rotary(args) -> int:
             logger.error(f"Failed to initialise RotaryEncoder: {e}")
             return 1
 
-    # Initialise display
-    display_ok = display_init(
-        spi_device=args.display_spi_device,
-        force_simulation=args.force_simulation,
-        rotate=rotate,
-    )
-    if not display_ok:
-        logger.warning("Display init failed - continuing in simulation mode")
+    # Create a simulated ADC so PickerCore can read knob positions that are
+    # injected programmatically from the rotary selections.
+    sim_adc = SimulatedMCP3008()
+    calib_map = {ch: Calibration() for ch in range(8)}
+    hw = HW(adc_reader=sim_adc, calib_map=calib_map)
 
-    effective_size = (args.display_w, args.display_h)
-    if rotate in ('CW', 'CCW'):
-        effective_size = (args.display_h, args.display_w)
+    # Create PickerCore for the full application: display worker, img2img,
+    # SD generation, streaming, main-screen composition.
+    try:
+        picker_core = PickerCore(
+            hw=hw,
+            texts=texts,
+            display_size=(args.display_w, args.display_h),
+            spi_device=args.display_spi_device,
+            force_simulation=args.force_simulation,
+            rotate=rotate,
+            generation_mode=args.generation_mode,
+            stream=args.stream,
+            stream_port=args.stream_port,
+        )
+        logger.info("PickerCore initialized for rotary mode")
+    except Exception as e:
+        logger.error(f"Failed to initialize PickerCore: {e}")
+        return 1
 
-    # Track previous image for true partial refresh
-    prev_menu_image = [None]  # Use list for mutability
+    effective_size = picker_core.effective_display_size
+
+    def _sync_hw_from_rotary(rotary_core_ref):
+        """Translate current rotary selections into simulated ADC positions.
+
+        PickerCore reads knob positions via ``hw.read_positions()``.  We
+        mirror every rotary selection into the SimulatedMCP3008 and directly
+        set the corresponding KnobMapper state so the position is reflected
+        immediately (bypassing debounce).
+
+        The inversion formula comes from PickerCore's own display logic:
+        ``display_pos = (N-1) - adc_pos``  →  ``adc_pos = (N-1) - item_idx``
+        where N = 12 (default calibration positions).
+        """
+        for menu_idx, item_idx in rotary_core_ref.selections.items():
+            ch = ch_by_menu_idx.get(menu_idx)
+            if ch is None:
+                continue
+            adc_pos = max(0, min(11, 11 - item_idx))
+            raw = int((adc_pos + 0.5) * 1024 / 12)
+            try:
+                sim_adc.set_channel(ch, raw)
+            except Exception:
+                pass
+            mapper = hw.mappers.get(ch)
+            if mapper:
+                mapper.state.last_pos = adc_pos
+                mapper.state.last_raw = raw
+                mapper.state.stable_count = 0
+
+    # rotary_core_holder lets the display callback safely reference
+    # rotary_core before the variable is assigned.  RotaryPickerCore.__init__
+    # fires an initial _refresh_display() call, so the holder avoids a
+    # NameError for that first call.
+    rotary_core_holder = [None]
 
     def _do_display(title, items, selected_index):
-        """Render and blit a rotary menu image with partial refresh."""
+        """Render and blit the appropriate screen based on navigation state."""
+        rc = rotary_core_holder[0]
         try:
-            logger.info(f"[DISPLAY] title={title!r}, showing item {selected_index} of {len(items)}: {items[selected_index] if selected_index < len(items) else '?'}")
-            img = compose_rotary_menu(title, items, selected_index, full_screen=effective_size)
-            
-            # Save current image to temp file for next partial update
-            import tempfile
-            tmp_path = tempfile.gettempdir() + "/picker_rotary_menu.png"
-            img.save(tmp_path)
-            
-            # Use partial mode with previous image if available
-            if prev_menu_image[0] is not None:
-                blit(img, "rotary-menu", rotate, mode="partial", prev_image_path=prev_menu_image[0])
+            if rc is None or rc.state is NavState.TOP_MENU:
+                # Top-level navigation: show the rotary menu list so the user
+                # can see Go / Reset highlighted before pressing the button.
+                img = compose_rotary_menu(title, items, selected_index, full_screen=effective_size)
+                with picker_core._display_queue_lock:
+                    picker_core._display_queue.clear()
+                    picker_core._display_queue.append(("rotary-top", img, picker_core.rotate, 'DU'))
             else:
-                # First display - use DU mode (fast 1-bit update)
-                blit(img, "rotary-menu", rotate, mode="DU")
-            
-            prev_menu_image[0] = tmp_path
+                # SUBMENU: show an ADC-style knob overlay for this channel.
+                menu_idx = rc._active_menu_idx
+                ch = ch_by_menu_idx.get(menu_idx)
+                _, submenu_values = rc.menus[menu_idx]
+
+                if selected_index == 0:
+                    # Cursor is on "↩ Return": highlight the saved selection.
+                    item_pos = rc.selections.get(menu_idx, 0)
+                else:
+                    item_pos = selected_index - 1  # offset by the Return entry
+
+                item_pos = max(0, min(len(submenu_values) - 1, item_pos))
+
+                # Prefer the full 12-item values list from texts so the overlay
+                # layout matches ADC mode exactly.  Fall back to the filtered
+                # submenu values if the channel isn't in the texts mapping.
+                if ch is not None:
+                    knob = texts.get(f"CH{ch}", {})
+                    ch_title = knob.get('title', title)
+                    ch_values = knob.get('values', submenu_values)
+                    # Map item_pos (index in filtered list) to index in full list
+                    # by looking up the selected label.
+                    selected_label = submenu_values[item_pos] if item_pos < len(submenu_values) else ""
+                    try:
+                        display_idx = ch_values.index(selected_label)
+                    except (ValueError, AttributeError):
+                        display_idx = item_pos
+                else:
+                    ch_title = title
+                    ch_values = submenu_values
+                    display_idx = item_pos
+
+                img = compose_overlay(ch_title, ch_values, display_idx, full_screen=effective_size)
+                with picker_core._display_queue_lock:
+                    picker_core._display_queue.clear()
+                    picker_core._display_queue.append(("rotary-sub", img, picker_core.rotate, 'FAST'))
         except Exception as exc:
             logger.debug(f"Display update failed: {exc}")
 
     def _do_action(action_name):
-        """Handle Go / Reset actions."""
+        """Handle Go / Reset using PickerCore for full SD-generation functionality."""
         logger.info(f"Action triggered: {action_name}")
-        try:
-            msg = "GO!" if action_name == "Go" else "RESETTING"
-            img = compose_message(msg, full_screen=effective_size)
-            # Use full mode for action message (important status change)
-            blit(img, action_name.lower(), rotate, "full")
-            time.sleep(2.0)
-            # Return to menu instead of staying stuck on action message
-            title, items, idx = core.current_display()
-            _do_display(title, items, idx)
-        except Exception as exc:
-            logger.debug(f"Action display failed: {exc}")
+        rc = rotary_core_holder[0]
+        if rc is not None:
+            _sync_hw_from_rotary(rc)
+        if action_name == "Go":
+            picker_core.handle_go()
+        else:
+            picker_core.handle_reset()
 
-    core = RotaryPickerCore(
+    rotary_core = RotaryPickerCore(
         menus=menus,
-        on_display=_do_display,  # Direct display (no throttling needed with queue draining)
+        on_display=_do_display,
         on_action=_do_action,
-        wrap=False,  # Disable wrap-around: stick at ends instead of wrapping to other end
+        wrap=False,  # Stick at ends rather than wrapping
     )
+    rotary_core_holder[0] = rotary_core
 
-    # Show startup banner
+    # Show the full main screen immediately at startup (image + selected values)
     try:
-        img = compose_message("Starting...", full_screen=effective_size)
-        blit(img, "starting", rotate, "full")
-        time.sleep(1.0)
-    except Exception:
-        pass
-
-    # Refresh to show the actual menu after startup banner
-    try:
-        title, items, idx = core.current_display()
-        _do_display(title, items, idx)
+        _sync_hw_from_rotary(rotary_core)
+        picker_core.show_main()
     except Exception as exc:
-        logger.debug(f"Failed to refresh menu after startup: {exc}")
+        logger.debug(f"Failed to show initial main screen: {exc}")
 
     logger.info("Rotary picker running — press Ctrl-C to stop")
 
@@ -159,10 +251,16 @@ def _run_rotary(args) -> int:
     last_log_time = time.time()
     cumulative_rotation = 0  # Track net rotation from queued events
     rotation_threshold = 2  # Require N detents to move 1 menu item (finer control)
-    
+
     # Directional momentum filtering (noise rejection for fast rotation)
     rotation_history = []  # Recent rotation events for direction tracking
     history_window = 10  # Track last N events
+
+    # Idle timeout: return to main screen after inactivity while in TOP_MENU.
+    # This mirrors the ADC overlay timeout behaviour.
+    last_activity_time = time.time()
+    idle_timeout = 3.0  # seconds before showing main screen
+    showing_main = True  # True when the main screen is currently displayed
 
     def _shutdown(sig, frame):
         nonlocal running
@@ -172,6 +270,18 @@ def _run_rotary(args) -> int:
     def _cleanup():
         try:
             encoder.cleanup()
+        except Exception:
+            pass
+        # Stop PickerCore's background threads
+        try:
+            picker_core._display_thread_stop = True
+            if picker_core._display_thread and picker_core._display_thread.is_alive():
+                picker_core._display_thread.join(timeout=1.0)
+        except Exception:
+            pass
+        try:
+            if picker_core.camera_manager:
+                picker_core.camera_manager.stop()
         except Exception:
             pass
         try:
@@ -187,28 +297,28 @@ def _run_rotary(args) -> int:
 
     try:
         while running:
-            # Drain ALL rotation events from queue and accumulate
-            # This prevents "scrolling continues after knob stops" problem
+            # Drain ALL rotation events from queue and accumulate.
+            # This prevents "scrolling continues after knob stops" problem.
             had_events = False
             button_event = None
-            
+
             while True:
                 event = encoder.get_event()
                 if event is None:
                     break
-                
+
                 event_count += 1
                 had_events = True
                 kind, value = event
-                
+
                 if kind == "rotate":
                     rotation_value = int(value)
-                    
+
                     # Directional momentum filtering: track recent events
                     rotation_history.append(rotation_value)
                     if len(rotation_history) > history_window:
                         rotation_history.pop(0)
-                    
+
                     # Calculate dominant direction from recent history
                     if len(rotation_history) >= 3:
                         recent_sum = sum(rotation_history[-5:])  # Last 5 events
@@ -218,40 +328,57 @@ def _run_rotary(args) -> int:
                             if (recent_sum > 0 and rotation_value < 0) or (recent_sum < 0 and rotation_value > 0):
                                 logger.debug(f"[Noise filter] Ignoring {rotation_value} event (momentum={recent_sum})")
                                 continue  # Skip this noisy event
-                    
+
                     cumulative_rotation += rotation_value
                     logger.debug(f"[Event #{event_count}] rotate={rotation_value}, cumulative={cumulative_rotation}")
                 elif kind == "button":
                     button_event = bool(value)
                     logger.debug(f"[Event #{event_count}] button={value}")
-            
+
             # Apply cumulative rotation with threshold (finer control)
             if cumulative_rotation != 0:
-                # Calculate how many menu items to move (accumulator / threshold)
                 movement = cumulative_rotation // rotation_threshold
                 remainder = cumulative_rotation % rotation_threshold
-                
+
                 if movement != 0:
                     logger.debug(f"Applying rotation: {cumulative_rotation} detents -> {movement} items (remainder={remainder})")
-                    core.handle_rotate(movement)
+                    rotary_core.handle_rotate(movement)
                     cumulative_rotation = remainder  # Keep remainder for next time
-                    logger.debug(f"  -> After rotate: cursor={core.cursor}, remaining={cumulative_rotation}")
+                    logger.debug(f"  -> After rotate: cursor={rotary_core.cursor}, remaining={cumulative_rotation}")
                 else:
                     logger.debug(f"Rotation accumulated: {cumulative_rotation}/{rotation_threshold} (need {rotation_threshold - abs(cumulative_rotation)} more)")
-            
+
             # Handle button event if any
             if button_event is not None:
-                core.handle_button(button_event)
-                logger.debug(f"  -> After button press={button_event}: state={core.state.name}, cursor={core.cursor}")
-            
+                rotary_core.handle_button(button_event)
+                logger.debug(f"  -> After button press={button_event}: state={rotary_core.state.name}, cursor={rotary_core.cursor}")
+
+            # Track activity for the idle-to-main-screen timeout
+            if had_events:
+                last_activity_time = time.time()
+                showing_main = False
+
+            # In TOP_MENU: return to main screen after idle_timeout seconds of
+            # no interaction, mirroring the ADC-mode overlay timeout.
+            now = time.time()
+            if (rotary_core.state is NavState.TOP_MENU
+                    and not showing_main
+                    and (now - last_activity_time) > idle_timeout):
+                try:
+                    _sync_hw_from_rotary(rotary_core)
+                    picker_core.show_main()
+                    showing_main = True
+                except Exception as exc:
+                    logger.debug(f"Idle main-screen refresh failed: {exc}")
+
             # Small sleep to avoid busy-waiting
             if not had_events:
                 time.sleep(0.001)
-            
+
             # Log summary every 5 seconds
             now = time.time()
             if now - last_log_time >= 5.0:
-                logger.info(f"Event loop: {event_count} events processed in last {now - last_log_time:.1f}s, current state={core.state.name} cursor={core.cursor}")
+                logger.info(f"Event loop: {event_count} events processed in last {now - last_log_time:.1f}s, current state={rotary_core.state.name} cursor={rotary_core.cursor}")
                 event_count = 0
                 last_log_time = now
     except Exception as e:
