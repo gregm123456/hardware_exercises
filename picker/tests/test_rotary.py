@@ -108,6 +108,7 @@ class TestRotaryPickerCoreInit:
         assert len(calls) >= 1
         title, items, idx = calls[-1]
         assert title == "Select Menu"
+        assert "Back" in items
         assert "Colour" in items
         assert "Size" in items
         assert "Go" in items
@@ -129,7 +130,7 @@ class TestRotaryPickerCoreTopMenu:
         core, _, _ = _make_core()
         core.handle_rotate(-1)
         # With wrap=True, rotating back from 0 wraps to last item
-        n = len(SAMPLE_MENUS) + 2  # menus + Go + Reset
+        n = len(SAMPLE_MENUS) + 3  # Back + menus + Go + Reset
         assert core.cursor == n - 1
 
     def test_rotate_ccw_clamps_at_zero_when_no_wrap(self):
@@ -139,7 +140,7 @@ class TestRotaryPickerCoreTopMenu:
 
     def test_rotate_cw_wraps_at_end(self):
         core, _, _ = _make_core()
-        n = len(SAMPLE_MENUS) + 2
+        n = len(SAMPLE_MENUS) + 3  # Back + menus + Go + Reset
         for _ in range(n):
             core.handle_rotate(+1)
         assert core.cursor == 0
@@ -151,23 +152,32 @@ class TestRotaryPickerCoreTopMenu:
         assert len(calls) == before  # no new display call
         assert core.state is NavState.TOP_MENU
 
+    def test_button_press_on_back_triggers_action(self):
+        core, _, action_calls = _make_core()
+        # cursor is at 0 → "Back"
+        core.handle_button(True)
+        assert "Back" in action_calls
+        assert core.state is NavState.TOP_MENU
+
     def test_button_press_on_menu_enters_submenu(self):
         core, _, _ = _make_core()
-        # cursor is at 0 → "Colour"
+        # "Colour" is at index 1 (after "Back")
+        core._cursor = 1
         core.handle_button(True)
         assert core.state is NavState.SUBMENU
 
     def test_button_press_on_go_triggers_action(self):
         core, _, action_calls = _make_core()
-        # Navigate to "Go" (index n_menus = 2)
-        core._cursor = len(SAMPLE_MENUS)  # directly set for test clarity
+        # "Go" is at index n_menus+1 (Back + menus + Go)
+        core._cursor = len(SAMPLE_MENUS) + 1
         core.handle_button(True)
         assert "Go" in action_calls
         assert core.state is NavState.TOP_MENU
 
     def test_button_press_on_reset_triggers_action(self):
         core, _, action_calls = _make_core()
-        core._cursor = len(SAMPLE_MENUS) + 1
+        # "Reset" is at index n_menus+2
+        core._cursor = len(SAMPLE_MENUS) + 2
         core.handle_button(True)
         assert "Reset" in action_calls
         assert core.state is NavState.TOP_MENU
@@ -176,42 +186,94 @@ class TestRotaryPickerCoreTopMenu:
 class TestRotaryPickerCoreSubmenu:
     def test_submenu_items_start_with_return(self):
         core, calls, _ = _make_core()
+        core._cursor = 1  # "Colour" is at index 1
         core.handle_button(True)  # enter "Colour" submenu
         assert core.state is NavState.SUBMENU
         _, items, _ = calls[-1]
         assert items[0] == "↩ Return"
-        assert "Red" in items
-        assert "Green" in items
-        assert "Blue" in items
+        assert any("Red" in item for item in items)
+        assert any("Green" in item for item in items)
+        assert any("Blue" in item for item in items)
+
+    def test_submenu_ends_with_blank_when_not_selected(self):
+        core, calls, _ = _make_core()
+        core._cursor = 1  # "Colour"
+        core.handle_button(True)
+        _, items, _ = calls[-1]
+        # blank is last; with default selection (0, not blank), it is ""
+        assert items[-1] == ""
+
+    def test_submenu_ends_with_star_when_blank_is_selected(self):
+        core, calls, _ = _make_core()
+        _, values = core.menus[0]
+        core.selections[0] = len(values)  # blank selected
+        core._cursor = 1  # "Colour"
+        core.handle_button(True)
+        _, items, _ = calls[-1]
+        assert items[-1] == "* "
+
+    def test_submenu_marks_saved_selection_with_star(self):
+        core, calls, _ = _make_core()
+        core.selections[0] = 1  # "Green" pre-selected
+        core._cursor = 1  # "Colour"
+        core.handle_button(True)
+        _, items, _ = calls[-1]
+        # index 0 = Return, index 1 = Red, index 2 = * Green, ...
+        assert items[2] == "* Green"
+        assert items[1] == "Red"
 
     def test_submenu_cursor_starts_at_saved_selection(self):
         core, _, _ = _make_core()
         # Default selection for menu 0 is 0 → cursor should be 1 (0+1 for Return)
+        core._cursor = 1  # "Colour"
         core.handle_button(True)
         assert core.cursor == 1
 
     def test_rotate_in_submenu_moves_cursor(self):
         core, _, _ = _make_core()
+        core._cursor = 1  # "Colour"
         core.handle_button(True)
         core.handle_rotate(+1)
         assert core.cursor == 2
 
     def test_select_item_saves_selection_and_returns_to_top(self):
         core, _, _ = _make_core()
+        core._cursor = 1   # "Colour"
         core.handle_button(True)   # enter "Colour"
         core.handle_rotate(+1)     # move to index 2 ("Green")
         core.handle_button(True)   # select "Green"
         assert core.state is NavState.TOP_MENU
         assert core.selections[0] == 1  # item_idx = cursor-1 = 2-1 = 1 → "Green"
 
+    def test_cursor_resets_to_zero_after_submenu_select(self):
+        core, _, _ = _make_core()
+        core._cursor = 1   # "Colour"
+        core.handle_button(True)   # enter "Colour"
+        core.handle_button(True)   # select first item (cursor=1)
+        assert core.state is NavState.TOP_MENU
+        assert core.cursor == 0  # always back to "Back"
+
     def test_return_option_goes_back_without_changing_selection(self):
         core, _, _ = _make_core()
+        core._cursor = 1   # "Colour"
         core.handle_button(True)   # enter "Colour"
-        # Move away from default then back to Return (index 0)
+        # Move to Return (index 0)
         core._cursor = 0
         core.handle_button(True)   # select Return
         assert core.state is NavState.TOP_MENU
         assert core.selections[0] == 0  # unchanged
+        assert core.cursor == 0  # always back to "Back"
+
+    def test_select_blank_saves_blank_selection(self):
+        core, _, _ = _make_core()
+        core._cursor = 1  # "Colour"
+        core.handle_button(True)   # enter "Colour"
+        # Blank is at the last index: len(values)+1 (offset by Return)
+        _, values = core.menus[0]
+        core._cursor = len(values) + 1  # blank item
+        core.handle_button(True)
+        assert core.state is NavState.TOP_MENU
+        assert core.selections[0] == len(values)  # blank index
 
 
 class TestRotaryPickerCoreGetCurrentValues:
@@ -228,6 +290,13 @@ class TestRotaryPickerCoreGetCurrentValues:
         core.selections[1] = 2   # Size → "Large"
         vals = core.get_current_values()
         assert vals["Size"] == "Large"
+
+    def test_blank_selection_returns_empty_string(self):
+        core, _, _ = _make_core()
+        _, values = core.menus[0]
+        core.selections[0] = len(values)  # blank selection
+        vals = core.get_current_values()
+        assert vals["Colour"] == ""
 
 
 # ---------------------------------------------------------------------------

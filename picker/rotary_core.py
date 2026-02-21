@@ -7,13 +7,17 @@ Top-level (TOP_MENU)
 --------------------
 The user rotates the knob to scroll through a list whose entries are:
 
-    [menu_0_title, menu_1_title, ..., menu_N_title, "Go", "Reset"]
+    ["Back", menu_0_title, menu_1_title, ..., menu_N_title, "Go", "Reset"]
 
 Pushing the button:
 
+* on **"Back"**       → fires the *Back* action (returns to the main screen)
 * on a **menu name** → enters that menu's sub-list (SUBMENU state)
 * on **"Go"**         → fires the *go* action and returns to TOP_MENU
 * on **"Reset"**      → fires the *reset* action and returns to TOP_MENU
+
+The cursor is always reset to 0 (the "Back" item) whenever the top-level menu
+is re-displayed, so the user can immediately press to go back.
 
 Sub-menu (SUBMENU)
 ------------------
@@ -54,6 +58,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 # Special sentinel item names shown at the top level
+_BACK_LABEL = "Back"
 _GO_LABEL = "Go"
 _RESET_LABEL = "Reset"
 
@@ -191,12 +196,24 @@ class RotaryPickerCore:
     def _top_level_items(self) -> List[str]:
         """Return the flat list shown at the top level."""
         names = [title for title, _ in self.menus]
-        return names + [_GO_LABEL, _RESET_LABEL]
+        return [_BACK_LABEL] + names + [_GO_LABEL, _RESET_LABEL]
 
     def _submenu_items(self, menu_idx: int) -> List[str]:
-        """Return the items list for a sub-menu, prefixed with Return."""
+        """Return the items list for a sub-menu, prefixed with Return.
+
+        The currently-saved selection is visually marked with ``* ``.
+        A blank entry is appended as the last choice (no selection).
+        """
         _, values = self.menus[menu_idx]
-        return [_RETURN_LABEL] + list(values)
+        saved = self.selections.get(menu_idx, 0)
+        n = len(values)
+        display_values = [
+            f"* {v}" if i == saved else v
+            for i, v in enumerate(values)
+        ]
+        # Mark the trailing blank item if it is the saved selection
+        blank = "* " if saved == n else ""
+        return [_RETURN_LABEL] + display_values + [blank]
 
     def _current_items(self) -> List[str]:
         if self._state is NavState.TOP_MENU:
@@ -226,9 +243,17 @@ class RotaryPickerCore:
         items = self._top_level_items()
         n_menus = len(self.menus)
 
-        if self._cursor < n_menus:
-            # Enter the selected menu
-            self._active_menu_idx = self._cursor
+        if self._cursor == 0:
+            # "Back" selected — return to main screen
+            logger.info("Action: Back")
+            try:
+                self._on_action(_BACK_LABEL)
+            except Exception:
+                logger.exception("on_action(Back) callback raised an exception")
+
+        elif 1 <= self._cursor <= n_menus:
+            # Enter the selected menu (offset by 1 for the Back entry)
+            self._active_menu_idx = self._cursor - 1
             self._state = NavState.SUBMENU
             # Start cursor at the item currently selected for this menu
             # (+1 because index 0 is "↩ Return")
@@ -242,7 +267,7 @@ class RotaryPickerCore:
             )
             self._refresh_display()
 
-        elif self._cursor == n_menus:
+        elif self._cursor == n_menus + 1:
             # "Go" selected
             logger.info("Action: Go")
             try:
@@ -250,7 +275,7 @@ class RotaryPickerCore:
             except Exception:
                 logger.exception("on_action(Go) callback raised an exception")
 
-        elif self._cursor == n_menus + 1:
+        elif self._cursor == n_menus + 2:
             # "Reset" selected
             logger.info("Action: Reset")
             try:
@@ -265,8 +290,8 @@ class RotaryPickerCore:
                 "Return from submenu %d to TOP_MENU", self._active_menu_idx
             )
             self._state = NavState.TOP_MENU
-            # Restore cursor to the menu that was just open
-            self._cursor = self._active_menu_idx
+            # Always reset to "Back" (index 0) so the user can immediately go back
+            self._cursor = 0
             self._refresh_display()
         else:
             # An actual item was selected (cursor offset by 1 for Return)
@@ -276,12 +301,12 @@ class RotaryPickerCore:
             logger.info(
                 "Selected %r → %r (index %d)",
                 title,
-                values[item_idx] if item_idx < len(values) else "?",
+                values[item_idx] if item_idx < len(values) else "",
                 item_idx,
             )
-            # Return to top level, cursor stays on the menu that was just set
+            # Return to top level; reset cursor to "Back" (index 0)
             self._state = NavState.TOP_MENU
-            self._cursor = self._active_menu_idx
+            self._cursor = 0
             self._refresh_display()
 
     def get_current_values(self) -> Dict[str, str]:
@@ -292,10 +317,13 @@ class RotaryPickerCore:
         dict
             Mapping of ``menu_title → selected_value_string``.  If no item
             has been explicitly selected for a menu, ``item_index=0`` is used.
+            An index equal to ``len(values)`` represents the blank (no
+            selection) choice and returns an empty string.
         """
         result: Dict[str, str] = {}
         for i, (title, values) in enumerate(self.menus):
             idx = self.selections.get(i, 0)
-            idx = max(0, min(idx, len(values) - 1))
-            result[title] = values[idx] if values else ""
+            # Allow idx == len(values) to represent the blank/no-selection choice
+            idx = max(0, min(idx, len(values)))
+            result[title] = values[idx] if idx < len(values) else ""
         return result

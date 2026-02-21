@@ -326,6 +326,7 @@ class TestDoDisplayTopMenu:
         assert prev_menu_image[0] is not None
 
         # Enter submenu → should reset prev_menu_image
+        rotary_core._cursor = 1  # first menu entry (after "Back")
         rotary_core.handle_button(True)
         assert rotary_core.state is NavState.SUBMENU
         assert prev_menu_image[0] is None, "prev_menu_image must be None after SUBMENU display"
@@ -395,7 +396,8 @@ class TestDoDisplaySubmenu:
         )
         rotary_core_holder[0] = rotary_core
 
-        # Enter submenu 0 (cursor is at 0 in TOP_MENU)
+        # Enter submenu 0 (cursor must be at 1 — "Back" is at 0)
+        rotary_core._cursor = 1
         rotary_core.handle_button(True)
         assert rotary_core.state is NavState.SUBMENU
 
@@ -452,7 +454,8 @@ class TestDoDisplaySubmenu:
 
         # Pre-save selection index 4 for menu 0
         rotary_core.selections[0] = 4
-        # Enter submenu
+        # Enter submenu (cursor must be at 1 — "Back" is at 0)
+        rotary_core._cursor = 1
         rotary_core.handle_button(True)
         # Move cursor to Return (index 0)
         rotary_core._cursor = 0
@@ -502,12 +505,12 @@ class TestDoAction:
         )
         rotary_core_holder[0] = rotary_core
 
-        # Navigate to Go or Reset
+        # Navigate to Go or Reset ("Back" is at 0, menus at 1..n_menus, Go at n_menus+1, Reset at n_menus+2)
         n_menus = len(menus)
         if action_name == "Go":
-            rotary_core._cursor = n_menus
-        else:
             rotary_core._cursor = n_menus + 1
+        else:
+            rotary_core._cursor = n_menus + 2
         rotary_core.handle_button(True)
 
         return picker_core
@@ -562,7 +565,8 @@ class TestDoAction:
 
         # Set selection: menu 0 → item 2
         rotary_core.selections[0] = 2
-        rotary_core._cursor = len(menus)
+        # "Go" is at n_menus+1 ("Back" at 0, menus at 1..n_menus, Go at n_menus+1)
+        rotary_core._cursor = len(menus) + 1
         rotary_core.handle_button(True)
 
         ch0 = ch_by_menu_idx[0]
@@ -615,7 +619,8 @@ class TestIdleTimeout:
         picker_core = MagicMock()
         rotary_core = RotaryPickerCore(menus=menus, on_display=lambda *a: None, wrap=False)
 
-        # Enter SUBMENU
+        # Enter SUBMENU (cursor must be at 1 — "Back" is at 0)
+        rotary_core._cursor = 1
         rotary_core.handle_button(True)
         assert rotary_core.state is NavState.SUBMENU
 
