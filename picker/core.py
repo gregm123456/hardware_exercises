@@ -29,6 +29,11 @@ class PickerCore:
         self.texts = texts or load_texts()
         self.display_size = display_size
         self.generation_mode = generation_mode
+        # Initialize these early so they always exist (needed by capture_still.py status endpoint)
+        self.last_image_source = None
+        self.last_main_positions = {}
+        self.last_interrogate = None
+        self.last_gen_interrogate = None
         # If rotation will be applied, compose UI using the rotated dimensions
         if rotate in ('CW', 'CCW'):
             # swap width/height so composition matches final orientation
@@ -49,10 +54,8 @@ class PickerCore:
         self.min_update_interval = 0.05  # 50ms minimum between display updates for responsiveness
         self.display_busy = False  # track if display update is in progress
         
-        # track last-main view to avoid redundant blits
-        self.last_main_positions = {}
-        self.last_interrogate = None
-        self.last_gen_interrogate = None
+        # Note: last_main_positions, last_interrogate, last_gen_interrogate are 
+        # initialized early in __init__ so they always exist
         self.running = False
         self.stream_port = stream_port
 
@@ -136,11 +139,7 @@ class PickerCore:
         except Exception:
             logger.exception("Failed to start display worker thread; display will be used synchronously")
 
-        # Keep the last image-generation source string that corresponds to
-        # the currently shown main image. This ensures the top-right annotation
-        # text only updates when a new image is generated and associated with
-        # the main image. It should contain the exact prompt/CSV used.
-        self.last_image_source = None
+        # Note: last_image_source is initialized early in __init__ so it always exists
         # When True, suppress automatic main-screen redraws until a
         # background generation finishes (or a timeout expires). This is
         # used so the temporary "GO" screen remains visible until the
