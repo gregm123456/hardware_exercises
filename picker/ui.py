@@ -125,7 +125,7 @@ def compose_message(message: str, full_screen: Tuple[int, int] = (DISPLAY_W, DIS
     return img
 
 
-def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, int] = (DISPLAY_W, DISPLAY_H), placeholder_path: str = None, rotate_output: str = None, image_source_text: str = None) -> Image.Image:
+def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, int] = (DISPLAY_W, DISPLAY_H), placeholder_path: str = None, rotate_output: str = None, image_source_text: str = None, highlighted_entry: int = -1) -> Image.Image:
     """Compose the main idle screen.
 
     Layout: top-centred placeholder image (reserved 512x512 area where possible),
@@ -134,6 +134,9 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
     - `texts` is the loaded texts mapping (e.g. load_texts()).
     - `positions` is a dict mapping channel int -> position int (0..11).
     - `placeholder_path` optionally overrides the default asset location.
+    - `highlighted_entry` when ≥ 0 inverts the full row (title + value) at that
+      visual entry index (0-5), indicating the user has selected that category
+      with the rotary knob and can press to enter its submenu.
     Returns an L-mode PIL Image sized to full_screen.
     """
     w, h = full_screen
@@ -487,6 +490,14 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
             if top_y + pair_h > area_y1:
                 top_y = area_y1 - pair_h
 
+            # If this entry is highlighted (rotary knob is pointing at it),
+            # draw a full-width inverted bar so the row stands out clearly.
+            row_highlighted = (i == highlighted_entry)
+            if row_highlighted:
+                row_y0 = max(area_y0, top_y - 4)
+                row_y1 = min(area_y1, top_y + pair_h + 4)
+                draw.rectangle((0, row_y0, layout_w, row_y1), fill=0)
+
             try:
                 # append trailing colon only (no leading colon) and draw title
                 try:
@@ -497,7 +508,15 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                         t = f"{title.strip()}:"
                     except Exception:
                         t = title + ':'
-                draw.text((x, top_y), t, font=title_font, fill=0)
+                text_fill = 255 if row_highlighted else 0
+                draw.text((x, top_y), t, font=title_font, fill=text_fill)
+
+                # When the whole row is highlighted, just draw the value in white
+                # and skip the invert_value logic (the row already has a black bg).
+                if row_highlighted:
+                    val_y = top_y + title_h + gap
+                    draw.text((x, val_y), sel, font=value_font, fill=text_fill)
+                    continue
 
                 # Determine whether this value should be inverted.
                 # If image_source_text is None or empty, invert all values.

@@ -29,11 +29,11 @@ Highlights
   RESET as separate ADC-threshold buttons; per-knob calibration with hysteresis
   to avoid flicker between detents.
 - **Rotary encoder mode** (new): one rotary encoder + pushbutton replaces all
-  six knobs and two buttons. The encoder navigates a two-level hierarchical menu:
-  rotate to scroll through `["Go", cat_1, ..., cat_N]` and press to act.
-  A short press on "Go" (the default cursor position) triggers image generation
-  immediately; a short press on a category enters its submenu.  **Reset** is
-  triggered by a long press (≥ 3 seconds, configurable).
+  six knobs and two buttons.  Only two screen types: the **main screen** (with
+  the generated image and all category values; turning the knob highlights a
+  category row in-place) and the **category submenu** (scrollable value list).
+  A short press on the highlighted category enters its submenu; a short press
+  with no category highlighted fires Go; a long press (≥ 3 s) fires Reset.
 - Supports both `txt2img` and `img2img` Stable Diffusion generation modes.
 - **Live Stream**: MJPEG camera stream available with `--stream` (default port 8088).
 - Display abstraction supports several backends: `update_waveshare`, IT8951
@@ -100,22 +100,19 @@ When running as a service on Pi 5:
 
 - `rotary_core.py` *(new — rotary mode)* — navigation state machine.
   - Two states: `TOP_MENU` and `SUBMENU`.
-  - Top level shows: `["Go", menu_0_title, ..., menu_N_title]`.
-    The cursor starts at `"Go"` (index 0) so a simple press without turning
-    immediately fires Go (image generation).  Turning the knob highlights
-    categories in turn; pressing enters the highlighted category's submenu.
-    **Reset is triggered by a long press** (≥ `long_press_seconds`, default 3 s)
-    from any state — it is no longer a list item.
+  - Top level items: `["Go", menu_0_title, ..., menu_N_title]`.
+    The cursor starts at `"Go"` (index 0); pressing without rotating fires Go.
+    Rotating highlights category rows **on the main screen** (via the
+    `highlighted_entry` parameter of `compose_main_screen`) — no separate
+    navigation list is ever shown.  **Reset is triggered by a long press**
+    (≥ `long_press_seconds`, default 3 s).
   - Submenu shows: `["↩ Return", item_0, ..., item_K, ""]`.
-    The currently-selected item is auto-snapped and visually marked with a
-    `* ` prefix (e.g. `"* Adult"`).  The last entry `""` is a blank
-    (no-selection) choice.
-  - Short press "Go" → fires Go callback; short press on a menu name → enter
-    submenu; short press "↩ Return" → go back without changing selection;
-    short press on an item or blank → save selection and return to top level.
+    The currently-selected item is auto-snapped and marked with `* `.
+    The last entry `""` is a blank (no-selection) choice.
+  - Short press on a category → enter submenu; short press on Return → back
+    without change; short press on an item → save and return to main screen.
   - Long press (anywhere) → fires Reset callback.
   - `RotaryPickerCore.get_current_values()` → `{menu_title: selected_value}`.
-    An index pointing at the blank entry returns `""`.
   - `long_press_seconds` constructor parameter (default `3.0`) is configurable
     via `--rotary-long-press-seconds` on the command line.
 
@@ -219,61 +216,63 @@ instead (see *Running on hardware* below).
 
 ### User interface flow
 
+There are only **two screen types** in rotary encoder mode:
+
 ```
  ┌─────────────────────────────────────────────────────┐
- │  Picker  (top-level navigation)                     │
- │  ──────────────────────────────────────────────     │
- │  ▶ Go                  ← short press → generation   │  ← cursor starts here (default)
- │    Sex/Gender           ← rotate to highlight        │
- │    Age                  ← short press → enter submenu│
- │    Socioeconomics                                   │
- │    Politics                                         │
- │    Race                                             │
- │    Religion                                         │
- │    (long press anywhere → Reset)                    │
+ │  MAIN SCREEN  (idle and top-level navigation)       │
+ │  ┌──────────────────────────────────────────────┐   │
+ │  │  [last generated image / placeholder]        │   │
+ │  └──────────────────────────────────────────────┘   │
+ │                                                     │
+ │    Politics:               Sex/Gender:              │
+ │    Anarchist               Agender                  │
+ │    ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  Age:                     │
+ │    ▓  Socioeconomics: ▓▓▓  Young Adult              │
+ │    ▓  Lower Class     ▓▓▓  Race:                    │
+ │    ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  African                  │
+ │  (highlighted row = rotary cursor)                  │
  └─────────────────────────────────────────────────────┘
 
  ┌─────────────────────────────────────────────────────┐
- │  Age                                                │
+ │  SUBMENU  (after pressing on a highlighted category)│
  │  ──────────────────────────────────────────────     │
  │    ↩ Return            ← push to go back unchanged  │
- │    Young Adult                                      │
- │  ▶ * Adult             ← currently selected (marked with * )
- │    Middle-aged                                      │
- │    Senior                                           │
+ │    Lower Class                                      │
+ │  ▶ * Working Class     ← currently selected (* )   │
+ │    Middle Class                                     │
+ │    Upper Class                                      │
  │    ...                 (scroll indicator on right)  │
  │                        ← blank (no selection) last  │
  └─────────────────────────────────────────────────────┘
 ```
 
-- **Rotate** — scroll through the visible list.
-- **Short press** — enter the highlighted submenu / select the highlighted item /
-  trigger Go / return to top level.
+- **Rotate** — on the main screen, moves the highlight between category rows.
+  The main screen stays on-screen the whole time; only the highlighted row changes.
+- **Short press when a category is highlighted** — enter that category's submenu.
+- **Short press when no category is highlighted** (cursor at Go, index 0) —
+  immediately trigger image generation.  Because the cursor starts at Go when
+  first entering the top level, a press without rotating = instant generation.
 - **Long press** (hold ≥ 3 seconds, configurable) — trigger Reset from any
-  state (top-level or submenu). This replaces the old "Reset" list item.
-- **"Go"** — first item at the top level; the cursor always starts here, so a
-  press without rotating immediately generates an image.
-- **"↩ Return"** at the top of every submenu — go back to the top level
+  state.
+- **"↩ Return"** at the top of every submenu — go back to the main screen
   *without* changing the current selection for that category.
 - **`* ` prefix** — the currently-selected value in a submenu is displayed
-  with a `* ` prefix (e.g. `* Adult`) and is auto-snapped when entering
-  the submenu so it is immediately highlighted.
+  with a `* ` prefix (e.g. `* Adult`) and the cursor auto-snaps to it on entry.
 - **Blank entry** — the last item in every submenu is an empty string, allowing
   the user to explicitly set *no selection* for that category.
-- **Wrap-around is disabled** — rotating past the last item stops at the end
-  (predictable boundary behaviour).
+- **Wrap-around is disabled** — rotating past the last row stops at the end.
 
 ### Display behaviour
 
-The e-paper content shown is identical to ADC-knob mode with two exceptions:
-
 | Situation | What the display shows |
 |-----------|------------------------|
-| Idle (no interaction for 3 s in TOP_MENU) | **Main screen** — placeholder/generated image + currently selected values for every category, identical to ADC mode |
-| TOP_MENU navigation (rotating or just entered) | **Navigation list** — rotary menu showing "Go" + all category names, with the highlighted entry inverted |
-| SUBMENU (entered a category) | **Knob overlay** — exactly the same 12-item overlay used in ADC mode for that channel, with the currently selected item inverted |
-| After pressing Go (short press at "Go") | **"GO!" splash** → SD image generation starts → **main screen** updates when generation finishes (img2img: camera is captured first) |
-| After long press (≥ 3 s) | **"RESETTING" splash** → display reinitialised → **main screen** |
+| Idle (no interaction for 3 s) | **Main screen** — image + current category values, all rows normal |
+| Rotating the knob | **Main screen** — same screen; the currently pointed-at category row is inverted (white text on black bar) to show the selection |
+| Short press on highlighted category | Transitions to **submenu** for that category |
+| Short press with cursor on Go | **"GO!" splash** → SD image generation starts → main screen updates |
+| Long press (≥ 3 s) | **"RESETTING" splash** → display reinitialised → main screen |
+| Inside a submenu | **Submenu list** — scrollable category values with `* ` on current selection |
 
 ### Debouncing
 

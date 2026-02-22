@@ -41,21 +41,24 @@ def _run_rotary(args) -> int:
     full :class:`~picker.core.PickerCore` instance for the complete
     application interface (main screen, img2img, SD generation, streaming).
 
-    Navigation behaviour:
-    * Default (idle): main screen with image + current selections.
-    * Rotating the knob: highlights items in the top-level list
-      ``["Go", category_1, ..., category_N]`` directly — no intermediate
-      "Select Menu" step.
-    * Short press on "Go" (cursor 0): fires Go (image generation).
-    * Short press on a category: enters that category's sub-menu.
-    * Long press (≥ ``--rotary-long-press-seconds``): fires Reset.
-    * SUBMENU: rotary list with the saved selection marked and a trailing
-      blank entry.
+    Only two screen types are used:
+
+    * **Main screen** (idle / TOP_MENU) — shows the generated image and all
+      current category values.  When the user turns the knob the screen stays
+      on the main screen but the highlighted category row is inverted to show
+      which category the knob is currently pointing at.  The cursor starts at
+      "Go" (index 0) so pressing without rotating immediately fires generation.
+    * **Submenu** — a scrollable list of values for the selected category.
+
+    Button interactions:
+    * Short press on "Go" (cursor 0) → fires Go (image generation).
+    * Short press on a category row → enters that category's submenu.
+    * Long press (≥ ``--rotary-long-press-seconds``) → fires Reset.
     """
     import tempfile
     from picker.rotary_encoder import RotaryEncoder, SimulatedRotaryEncoder
     from picker.rotary_core import RotaryPickerCore, NavState
-    from picker.ui import compose_rotary_menu
+    from picker.ui import compose_rotary_menu, compose_main_screen
     from picker.drivers.display_fast import clear_display, close as display_close
 
     rotate = None if args.rotate == 'none' else args.rotate
@@ -166,10 +169,13 @@ def _run_rotary(args) -> int:
                 mapper.state.last_raw = raw
                 mapper.state.stable_count = 0
 
-    # rotary_core_holder lets the display callback safely reference
-    # rotary_core before the variable is assigned.  RotaryPickerCore.__init__
-    # fires an initial _refresh_display() call, so the holder avoids a
-    # NameError for that first call.
+    # Maps visual row position on the main screen to CH channel.
+    # compose_main_screen uses knob_order = [0, 4, 1, 5, 2, 6] to lay out six
+    # entries (visual_pos 0-5 → CH 0, 4, 1, 5, 2, 6).  We need the reverse:
+    # given a CH number, which visual row is it?
+    _knob_order = [0, 4, 1, 5, 2, 6]
+    _ch_to_visual = {ch: i for i, ch in enumerate(_knob_order)}
+
     rotary_core_holder = [None]
     prev_menu_image = [None]  # Tracks last menu PNG path for partial (differential) refresh
 
@@ -178,9 +184,37 @@ def _run_rotary(args) -> int:
         rc = rotary_core_holder[0]
         try:
             if rc is None or rc.state is NavState.TOP_MENU:
-                # Top-level navigation: show the rotary menu list with fast partial
-                # refresh so only the changed region (highlighted item) is redrawn.
-                img = compose_rotary_menu(title, items, selected_index, full_screen=effective_size)
+                # TOP_MENU: show the main screen with the currently highlighted
+                # category row inverted so the user can see which category they
+                # are pointing at before pressing to enter its submenu.
+                # selected_index == 0 means "Go" is highlighted (no category).
+                if selected_index > 0:
+                    menu_idx = selected_index - 1
+                    ch = ch_by_menu_idx.get(menu_idx, -1)
+                    highlighted_entry = _ch_to_visual.get(ch, -1)
+                else:
+                    highlighted_entry = -1
+
+                # Sync rotary selections so compose_main_screen shows current values.
+                _sync_hw_from_rotary(rc)
+                # Build display positions (same inversion as show_main()).
+                try:
+                    raw_positions = hw.read_positions()
+                    main_positions = {}
+                    for ch_key, (pos, _) in raw_positions.items():
+                        knob = texts.get(f"CH{ch_key}")
+                        values = knob.get('values', [""] * 12) if knob else [""] * 12
+                        display_pos = max(0, min(len(values) - 1, (len(values) - 1) - pos))
+                        main_positions[ch_key] = display_pos
+                except Exception:
+                    main_positions = {}
+
+                img = compose_main_screen(
+                    texts, main_positions,
+                    full_screen=effective_size,
+                    image_source_text=picker_core.last_image_source,
+                    highlighted_entry=highlighted_entry,
+                )
                 # Save image for next differential update.
                 tmp_path = tempfile.gettempdir() + "/picker_rotary_menu.png"
                 img.save(tmp_path)
@@ -190,12 +224,12 @@ def _run_rotary(args) -> int:
                 # Use partial refresh with the previous image for a fast,
                 # flicker-free update; fall back to DU on the very first render.
                 if prev_menu_image[0] is not None:
-                    blit(img, "rotary-menu", rotate, mode="partial", prev_image_path=prev_menu_image[0])
+                    blit(img, "rotary-main", rotate, mode="partial", prev_image_path=prev_menu_image[0])
                 else:
-                    blit(img, "rotary-menu", rotate, mode="DU")
+                    blit(img, "rotary-main", rotate, mode="DU")
                 prev_menu_image[0] = tmp_path
             else:
-                # SUBMENU: render the list so "* " and the blank entry are visible.
+                # SUBMENU: render the category values list.
                 img = compose_rotary_menu(title, items, selected_index, full_screen=effective_size)
                 tmp_path = tempfile.gettempdir() + "/picker_rotary_menu.png"
                 img.save(tmp_path)
