@@ -491,12 +491,20 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                 top_y = area_y1 - pair_h
 
             # If this entry is highlighted (rotary knob is pointing at it),
-            # draw a full-width inverted bar so the row stands out clearly.
+            # draw an inverted box that covers only this entry's text area so
+            # it does not overwrite adjacent entries (entries may overlap when
+            # the display is short relative to the number of categories).
             row_highlighted = (i == highlighted_entry)
             if row_highlighted:
-                row_y0 = max(area_y0, top_y - 4)
-                row_y1 = min(area_y1, top_y + pair_h + 4)
-                draw.rectangle((0, row_y0, layout_w, row_y1), fill=0)
+                # Padding mirrors the invert_value style used for value boxes.
+                h_pad_x = max(6, int(base_font_size * 0.25))
+                h_pad_y = max(4, int(base_font_size * 0.15))
+                h_x0 = max(0, x - h_pad_x)
+                h_y0 = max(area_y0, top_y - h_pad_y)
+                # h_x1 covers the widest of the title/value text (max_w).
+                h_x1 = min(layout_w, x + max_w + h_pad_x)
+                h_y1 = min(area_y1, top_y + pair_h + h_pad_y)
+                draw.rectangle((h_x0, h_y0, h_x1, h_y1), fill=0)
 
             try:
                 # append trailing colon only (no leading colon) and draw title
