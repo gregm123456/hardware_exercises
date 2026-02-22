@@ -218,6 +218,14 @@ self._quad_required_reads = 2  # Stable CLK reads required (low latency)
 --rotary-debounce-ms 50  # Default 50ms button debounce
 ```
 
+**Long-press duration** (configurable, triggers Reset):
+```python
+--rotary-long-press-seconds 3.0  # Default 3-second hold for Reset
+```
+
+The `long_press_seconds` value can also be set programmatically when
+constructing `RotaryPickerCore(long_press_seconds=…)`.
+
 ---
 
 ## Performance Characteristics
@@ -335,3 +343,4 @@ Potential improvements for specialized use cases:
 | 2026-02-21 | Initial implementation of all optimizations |
 | 2026-02-21 | Added directional momentum filtering |
 | 2026-02-21 | Finalized parameters: threshold=2, debounce=2 reads, momentum window=10 |
+| 2026-02-22 | Simplified navigation: eliminated intermediate "Select Menu"; top-level list is now `["Go", cat_1, ..., cat_N]`; Reset moved to long press (3 s default, configurable via `--rotary-long-press-seconds`) |

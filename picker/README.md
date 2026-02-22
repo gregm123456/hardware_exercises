@@ -30,8 +30,10 @@ Highlights
   to avoid flicker between detents.
 - **Rotary encoder mode** (new): one rotary encoder + pushbutton replaces all
   six knobs and two buttons. The encoder navigates a two-level hierarchical menu:
-  rotate to scroll, press to enter/select. Menu count and item count are
-  unrestricted and set in the JSON config.
+  rotate to scroll through `["Go", cat_1, ..., cat_N]` and press to act.
+  A short press on "Go" (the default cursor position) triggers image generation
+  immediately; a short press on a category enters its submenu.  **Reset** is
+  triggered by a long press (≥ 3 seconds, configurable).
 - Supports both `txt2img` and `img2img` Stable Diffusion generation modes.
 - **Live Stream**: MJPEG camera stream available with `--stream` (default port 8088).
 - Display abstraction supports several backends: `update_waveshare`, IT8951
@@ -98,19 +100,24 @@ When running as a service on Pi 5:
 
 - `rotary_core.py` *(new — rotary mode)* — navigation state machine.
   - Two states: `TOP_MENU` and `SUBMENU`.
-  - Top level shows: `["Back", menu_0_title, ..., menu_N_title, "Go", "Reset"]`.
-    The cursor is always reset to `"Back"` (index 0) whenever the top menu is
-    re-displayed, so the user can immediately press to return to the main screen.
+  - Top level shows: `["Go", menu_0_title, ..., menu_N_title]`.
+    The cursor starts at `"Go"` (index 0) so a simple press without turning
+    immediately fires Go (image generation).  Turning the knob highlights
+    categories in turn; pressing enters the highlighted category's submenu.
+    **Reset is triggered by a long press** (≥ `long_press_seconds`, default 3 s)
+    from any state — it is no longer a list item.
   - Submenu shows: `["↩ Return", item_0, ..., item_K, ""]`.
     The currently-selected item is auto-snapped and visually marked with a
     `* ` prefix (e.g. `"* Adult"`).  The last entry `""` is a blank
     (no-selection) choice.
-  - Press "Back" at top level → fires callback; press a menu name → enter
-    submenu; press "↩ Return" → go back without changing selection; press an
-    item or blank → save selection and return to top level.
-  - Press "Go" or "Reset" at top level → fires callback.
+  - Short press "Go" → fires Go callback; short press on a menu name → enter
+    submenu; short press "↩ Return" → go back without changing selection;
+    short press on an item or blank → save selection and return to top level.
+  - Long press (anywhere) → fires Reset callback.
   - `RotaryPickerCore.get_current_values()` → `{menu_title: selected_value}`.
     An index pointing at the blank entry returns `""`.
+  - `long_press_seconds` constructor parameter (default `3.0`) is configurable
+    via `--rotary-long-press-seconds` on the command line.
 
 - `ui.py` — UI composition utilities (Pillow).
   - `compose_overlay(title, values, selected_index, full_screen)` — 12-item
@@ -214,17 +221,16 @@ instead (see *Running on hardware* below).
 
 ```
  ┌─────────────────────────────────────────────────────┐
- │  TOP MENU                                           │
+ │  Picker  (top-level navigation)                     │
  │  ──────────────────────────────────────────────     │
- │  ▶ Back               ← push to return to main     │  ← cursor always starts here
- │    Sex/Gender          ← rotate to highlight        │
- │    Age                 ← push to enter submenu      │
+ │  ▶ Go                  ← short press → generation   │  ← cursor starts here (default)
+ │    Sex/Gender           ← rotate to highlight        │
+ │    Age                  ← short press → enter submenu│
  │    Socioeconomics                                   │
  │    Politics                                         │
  │    Race                                             │
  │    Religion                                         │
- │    Go                  ← triggers generation        │
- │    Reset               ← triggers reset             │
+ │    (long press anywhere → Reset)                    │
  └─────────────────────────────────────────────────────┘
 
  ┌─────────────────────────────────────────────────────┐
@@ -241,12 +247,13 @@ instead (see *Running on hardware* below).
 ```
 
 - **Rotate** — scroll through the visible list.
-- **Push** — enter the highlighted submenu / select the highlighted item /
-  trigger Go or Reset / return to top level.
-- **"Back"** — first item in the top menu; the cursor always lands here when
-  the top menu is (re-)displayed so the user can immediately press to return
-  to the main screen without waiting for the idle timeout.
-- **"↩ Return"** at the top of every submenu — go back to the top menu
+- **Short press** — enter the highlighted submenu / select the highlighted item /
+  trigger Go / return to top level.
+- **Long press** (hold ≥ 3 seconds, configurable) — trigger Reset from any
+  state (top-level or submenu). This replaces the old "Reset" list item.
+- **"Go"** — first item at the top level; the cursor always starts here, so a
+  press without rotating immediately generates an image.
+- **"↩ Return"** at the top of every submenu — go back to the top level
   *without* changing the current selection for that category.
 - **`* ` prefix** — the currently-selected value in a submenu is displayed
   with a `* ` prefix (e.g. `* Adult`) and is auto-snapped when entering
@@ -263,10 +270,10 @@ The e-paper content shown is identical to ADC-knob mode with two exceptions:
 | Situation | What the display shows |
 |-----------|------------------------|
 | Idle (no interaction for 3 s in TOP_MENU) | **Main screen** — placeholder/generated image + currently selected values for every category, identical to ADC mode |
-| TOP_MENU navigation (rotating or just entered) | **Navigation list** — rotary menu showing all category names + "Go" + "Reset", with the highlighted entry inverted |
+| TOP_MENU navigation (rotating or just entered) | **Navigation list** — rotary menu showing "Go" + all category names, with the highlighted entry inverted |
 | SUBMENU (entered a category) | **Knob overlay** — exactly the same 12-item overlay used in ADC mode for that channel, with the currently selected item inverted |
-| After pressing Go | **"GO!" splash** → SD image generation starts → **main screen** updates when generation finishes (img2img: camera is captured first) |
-| After pressing Reset | **"RESETTING" splash** → display reinitialised → **main screen** |
+| After pressing Go (short press at "Go") | **"GO!" splash** → SD image generation starts → **main screen** updates when generation finishes (img2img: camera is captured first) |
+| After long press (≥ 3 s) | **"RESETTING" splash** → display reinitialised → **main screen** |
 
 ### Debouncing
 
@@ -310,6 +317,7 @@ Full `--rotary` option reference:
 | `--rotary-dt  BCM_PIN` | 18 | BCM GPIO pin for DT  / B output |
 | `--rotary-sw  BCM_PIN` | 27 | BCM GPIO pin for SW (pushbutton) |
 | `--rotary-debounce-ms MS` | 50 | Button debounce window in milliseconds |
+| `--rotary-long-press-seconds SECS` | 3.0 | Hold duration in seconds to trigger Reset |
 
 All existing flags (`--config`, `--display-w`, `--display-h`,
 `--display-spi-device`, `--rotate`, `--force-simulation`, `--verbose`,

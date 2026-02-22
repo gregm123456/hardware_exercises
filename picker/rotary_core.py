@@ -1,23 +1,24 @@
 """Navigation state machine for single rotary-encoder + pushbutton picker.
 
 This module replaces the six-knob / two-button MCP3008 input strategy with a
-single rotary encoder knob that navigates a two-level hierarchical menu:
+single rotary encoder knob that navigates a two-level hierarchical menu.
 
 Top-level (TOP_MENU)
 --------------------
 The user rotates the knob to scroll through a list whose entries are:
 
-    ["Back", menu_0_title, menu_1_title, ..., menu_N_title, "Go", "Reset"]
+    ["Go", menu_0_title, menu_1_title, ..., menu_N_title]
 
-Pushing the button:
+The cursor starts at 0 ("Go") so a simple press without turning fires Go.
 
-* on **"Back"**       → fires the *Back* action (returns to the main screen)
-* on a **menu name** → enters that menu's sub-list (SUBMENU state)
-* on **"Go"**         → fires the *go* action and returns to TOP_MENU
-* on **"Reset"**      → fires the *reset* action and returns to TOP_MENU
+Pressing the button:
 
-The cursor is always reset to 0 (the "Back" item) whenever the top-level menu
-is re-displayed, so the user can immediately press to go back.
+* **short press** on **"Go"**       → fires the *Go* action
+* **short press** on a **menu name** → enters that menu's sub-list (SUBMENU)
+* **long press** (≥ ``long_press_seconds``) anywhere → fires the *Reset* action
+
+The cursor is always reset to 0 ("Go") after returning from a sub-menu so the
+user can immediately press Go or rotate to a category.
 
 Sub-menu (SUBMENU)
 ------------------
@@ -27,9 +28,10 @@ The user rotates to scroll through:
 
 Pushing the button:
 
-* on **"↩ Return"** → returns to TOP_MENU without changing the selection
-* on any **item**   → saves that item as the current selection for this menu
-                      and returns to TOP_MENU
+* **short press** on **"↩ Return"** → returns to TOP_MENU without changing the selection
+* **short press** on any **item**   → saves that item as the current selection for this menu
+                                      and returns to TOP_MENU
+* **long press** anywhere           → fires the *Reset* action
 
 The currently selected value for every menu is preserved in
 :attr:`RotaryPickerCore.selections` (``{menu_index: item_index}``).
@@ -44,7 +46,7 @@ meaningful state change:
     the visible selection changes or the state transitions.
 
 ``on_action(action_name)``
-    Called when the user selects "Go" or "Reset" at the top level.
+    Called when the user triggers "Go" or "Reset".
     *action_name* is the string ``"Go"`` or ``"Reset"``.
 
 Both callbacks are optional (default to no-ops).
@@ -52,13 +54,13 @@ Both callbacks are optional (default to no-ops).
 from __future__ import annotations
 
 import logging
+import time
 from enum import Enum, auto
 from typing import Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 # Special sentinel item names shown at the top level
-_BACK_LABEL = "Back"
 _GO_LABEL = "Go"
 _RESET_LABEL = "Reset"
 
@@ -87,10 +89,14 @@ class RotaryPickerCore:
         should be refreshed.
     on_action:
         Callback ``(action_name: str) -> None`` invoked when the user
-        selects "Go" or "Reset" at the top level.
+        triggers "Go" (short press at top level) or "Reset" (long press
+        from any state).
     wrap:
         When ``True`` (default), rotating past the end of a list wraps
         around to the other end.  Set to ``False`` for clamped behaviour.
+    long_press_seconds:
+        Duration in seconds a button must be held to trigger the "Reset"
+        action.  Defaults to 3.0 seconds.
     """
 
     def __init__(
@@ -99,12 +105,14 @@ class RotaryPickerCore:
         on_display: Optional[Callable[[str, List[str], int], None]] = None,
         on_action: Optional[Callable[[str], None]] = None,
         wrap: bool = True,
+        long_press_seconds: float = 3.0,
     ) -> None:
         if not menus:
             raise ValueError("menus must contain at least one entry")
 
         self.menus = menus
         self.wrap = wrap
+        self._long_press_seconds = long_press_seconds
 
         self._on_display = on_display or (lambda title, items, idx: None)
         self._on_action = on_action or (lambda action: None)
@@ -116,6 +124,9 @@ class RotaryPickerCore:
         self._state: NavState = NavState.TOP_MENU
         self._active_menu_idx: int = 0   # which menu is open in SUBMENU state
         self._cursor: int = 0             # index within the *currently shown* list
+
+        # Button press tracking for long-press detection
+        self._press_start: Optional[float] = None
 
         # Render initial display
         logger.info(f"RotaryPickerCore initialized with {len(menus)} menus")
@@ -154,22 +165,41 @@ class RotaryPickerCore:
     def handle_button(self, pressed: bool) -> None:
         """Handle a button event.
 
-        Only the *press* transition (``pressed=True``) triggers navigation.
-        The release event (``pressed=False``) is silently ignored so that
-        navigation is not accidentally triggered twice.
+        The *press* transition (``pressed=True``) records the start time for
+        long-press detection.  The *release* transition (``pressed=False``)
+        dispatches the appropriate action:
+
+        * If held for ≥ ``long_press_seconds`` → fires the *Reset* action.
+        * Otherwise (short press) → navigates normally (Go at top level,
+          enter sub-menu for a category, or select/return in a sub-menu).
 
         Parameters
         ----------
         pressed:
             ``True`` when the button is pushed down, ``False`` on release.
         """
-        if not pressed:
-            return  # act only on press, ignore release
+        if pressed:
+            self._press_start = time.time()
+            return  # action deferred until release
 
-        if self._state is NavState.TOP_MENU:
-            self._handle_top_select()
+        # Release event: determine press duration and dispatch.
+        if self._press_start is None:
+            return  # spurious release with no matching press
+
+        duration = time.time() - self._press_start
+        self._press_start = None
+
+        if duration >= self._long_press_seconds:
+            logger.info(f"Long press detected ({duration:.2f}s) — Action: Reset")
+            try:
+                self._on_action(_RESET_LABEL)
+            except Exception:
+                logger.exception("on_action(Reset) callback raised an exception")
         else:
-            self._handle_submenu_select()
+            if self._state is NavState.TOP_MENU:
+                self._handle_top_select()
+            else:
+                self._handle_submenu_select()
 
     # ------------------------------------------------------------------
     # Read-only properties
@@ -194,10 +224,15 @@ class RotaryPickerCore:
     # ------------------------------------------------------------------
 
     def _top_level_items(self) -> List[str]:
-        """Return the flat list shown at the top level."""
+        """Return the flat list shown at the top level.
+
+        The list begins with "Go" so a press without any rotation immediately
+        triggers image generation.  Category names follow, allowing the user
+        to rotate to a category and press to enter its sub-menu.  "Reset" is
+        no longer in this list — it is triggered by a long button press.
+        """
         names = [title for title, _ in self.menus]
-        # Place "Go" immediately after "Back", then the menus, then "Reset".
-        return [_BACK_LABEL, _GO_LABEL] + names + [_RESET_LABEL]
+        return [_GO_LABEL] + names
 
     def _submenu_items(self, menu_idx: int) -> List[str]:
         """Return the items list for a sub-menu, prefixed with Return.
@@ -223,7 +258,7 @@ class RotaryPickerCore:
 
     def _current_title(self) -> str:
         if self._state is NavState.TOP_MENU:
-            return "Select Menu"
+            return "Picker"
         title, _ = self.menus[self._active_menu_idx]
         return title
 
@@ -241,28 +276,19 @@ class RotaryPickerCore:
             logger.exception("on_display callback raised an exception")
 
     def _handle_top_select(self) -> None:
-        items = self._top_level_items()
         n_menus = len(self.menus)
-        # New ordering: [Back, Go, <menus...>, Reset]
+        # Ordering: [Go, <menus...>]
         if self._cursor == 0:
-            # "Back" selected — return to main screen
-            logger.info("Action: Back")
-            try:
-                self._on_action(_BACK_LABEL)
-            except Exception:
-                logger.exception("on_action(Back) callback raised an exception")
-
-        elif self._cursor == 1:
-            # "Go" selected (immediately after Back)
+            # "Go" selected (default position — press without rotating = Go)
             logger.info("Action: Go")
             try:
                 self._on_action(_GO_LABEL)
             except Exception:
                 logger.exception("on_action(Go) callback raised an exception")
 
-        elif 2 <= self._cursor <= 1 + n_menus:
-            # Enter the selected menu (offset by 2 for Back and Go entries)
-            self._active_menu_idx = self._cursor - 2
+        elif 1 <= self._cursor <= n_menus:
+            # Enter the selected menu (cursor offset by 1 for the Go entry)
+            self._active_menu_idx = self._cursor - 1
             self._state = NavState.SUBMENU
             # Start cursor at the item currently selected for this menu
             # (+1 because index 0 is "↩ Return")
@@ -275,14 +301,6 @@ class RotaryPickerCore:
                 self._cursor,
             )
             self._refresh_display()
-
-        elif self._cursor == n_menus + 2:
-            # "Reset" selected (last item)
-            logger.info("Action: Reset")
-            try:
-                self._on_action(_RESET_LABEL)
-            except Exception:
-                logger.exception("on_action(Reset) callback raised an exception")
 
     def _handle_submenu_select(self) -> None:
         if self._cursor == 0:
