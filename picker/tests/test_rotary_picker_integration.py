@@ -326,8 +326,9 @@ class TestDoDisplayTopMenu:
         assert prev_menu_image[0] is not None
 
         # Enter submenu → should reset prev_menu_image
-        rotary_core._cursor = 1  # first menu entry (after "Back")
+        rotary_core._cursor = 1  # first menu entry (Go is at 0, first category at 1)
         rotary_core.handle_button(True)
+        rotary_core.handle_button(False)  # short press
         assert rotary_core.state is NavState.SUBMENU
         assert prev_menu_image[0] is None, "prev_menu_image must be None after SUBMENU display"
 
@@ -396,9 +397,10 @@ class TestDoDisplaySubmenu:
         )
         rotary_core_holder[0] = rotary_core
 
-        # Enter submenu 0 (cursor must be at 1 — "Back" is at 0)
+        # Enter submenu 0 (cursor must be at 1 — Go is at 0, first category at 1)
         rotary_core._cursor = 1
         rotary_core.handle_button(True)
+        rotary_core.handle_button(False)  # short press
         assert rotary_core.state is NavState.SUBMENU
 
         # The last queued job should now be 'rotary-sub' (overlay)
@@ -454,9 +456,10 @@ class TestDoDisplaySubmenu:
 
         # Pre-save selection index 4 for menu 0
         rotary_core.selections[0] = 4
-        # Enter submenu (cursor must be at 1 — "Back" is at 0)
+        # Enter submenu (cursor at 1 — Go is at 0, first category at 1)
         rotary_core._cursor = 1
         rotary_core.handle_button(True)
+        rotary_core.handle_button(False)  # short press → enter submenu
         # Move cursor to Return (index 0)
         rotary_core._cursor = 0
         rotary_core._refresh_display()
@@ -502,16 +505,20 @@ class TestDoAction:
             on_display=_do_display,
             on_action=_do_action,
             wrap=False,
+            long_press_seconds=0.05,  # short threshold for testing Reset
         )
         rotary_core_holder[0] = rotary_core
 
-        # Navigate to Go or Reset ("Back" is at 0, menus at 1..n_menus, Go at n_menus+1, Reset at n_menus+2)
-        n_menus = len(menus)
+        # Navigate to Go (cursor 0) or trigger Reset via long press
         if action_name == "Go":
-            rotary_core._cursor = n_menus + 1
+            rotary_core._cursor = 0  # "Go" is at index 0
+            rotary_core.handle_button(True)
+            rotary_core.handle_button(False)  # short press
         else:
-            rotary_core._cursor = n_menus + 2
-        rotary_core.handle_button(True)
+            # Reset is triggered by a long press from any position
+            rotary_core.handle_button(True)
+            time.sleep(0.1)  # hold longer than threshold (0.05 s)
+            rotary_core.handle_button(False)
 
         return picker_core
 
@@ -565,9 +572,10 @@ class TestDoAction:
 
         # Set selection: menu 0 → item 2
         rotary_core.selections[0] = 2
-        # "Go" is at n_menus+1 ("Back" at 0, menus at 1..n_menus, Go at n_menus+1)
-        rotary_core._cursor = len(menus) + 1
+        # "Go" is at cursor 0
+        rotary_core._cursor = 0
         rotary_core.handle_button(True)
+        rotary_core.handle_button(False)  # short press
 
         ch0 = ch_by_menu_idx[0]
         # display_pos = 2 → adc_pos = 11 - 2 = 9
@@ -619,9 +627,10 @@ class TestIdleTimeout:
         picker_core = MagicMock()
         rotary_core = RotaryPickerCore(menus=menus, on_display=lambda *a: None, wrap=False)
 
-        # Enter SUBMENU (cursor must be at 1 — "Back" is at 0)
+        # Enter SUBMENU (cursor at 1 — Go is at 0, first category at 1)
         rotary_core._cursor = 1
         rotary_core.handle_button(True)
+        rotary_core.handle_button(False)  # short press
         assert rotary_core.state is NavState.SUBMENU
 
         idle_timeout = 0.01

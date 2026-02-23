@@ -54,6 +54,9 @@ DEFAULT_ROTARY_PIN_SW: int = 27   # SW  (pushbutton, active-LOW)
 # Default button debounce time in milliseconds
 DEFAULT_ROTARY_DEBOUNCE_MS: int = 50
 
+# Default long-press duration in seconds (triggers Reset action)
+DEFAULT_LONG_PRESS_SECONDS: float = 3.0
+
 
 
 def load_menus(path: str = None) -> List[Tuple[str, List[str]]]:

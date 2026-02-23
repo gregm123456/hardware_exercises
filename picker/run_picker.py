@@ -14,7 +14,7 @@ from picker.hw import HW, SimulatedMCP3008, Calibration
 from picker.config import (
     load_texts, load_menus, DEFAULT_DISPLAY,
     DEFAULT_ROTARY_PIN_CLK, DEFAULT_ROTARY_PIN_DT, DEFAULT_ROTARY_PIN_SW,
-    DEFAULT_ROTARY_DEBOUNCE_MS,
+    DEFAULT_ROTARY_DEBOUNCE_MS, DEFAULT_LONG_PRESS_SECONDS,
 )
 from picker.core import PickerCore
 from picker.ui import compose_message
@@ -41,17 +41,24 @@ def _run_rotary(args) -> int:
     full :class:`~picker.core.PickerCore` instance for the complete
     application interface (main screen, img2img, SD generation, streaming).
 
-    Display behaviour mirrors ADC-knob mode:
-    * Default (idle in TOP_MENU): main screen with image + current selections.
-    * TOP_MENU navigation (rotating): rotary navigation list so the user can
-      see Go / Reset highlighted before pressing the button.
-    * SUBMENU: rotary list with the saved selection marked and a trailing blank entry.
-    * Go / Reset: full SD-generation / display-reinit via PickerCore.
+    Only two screen types are used:
+
+    * **Main screen** (idle / TOP_MENU) — shows the generated image and all
+      current category values.  When the user turns the knob the screen stays
+      on the main screen but the highlighted category row is inverted to show
+      which category the knob is currently pointing at.  The cursor starts at
+      "Go" (index 0) so pressing without rotating immediately fires generation.
+    * **Submenu** — a scrollable list of values for the selected category.
+
+    Button interactions:
+    * Short press on "Go" (cursor 0) → fires Go (image generation).
+    * Short press on a category row → enters that category's submenu.
+    * Long press (≥ ``--rotary-long-press-seconds``) → fires Reset.
     """
     import tempfile
     from picker.rotary_encoder import RotaryEncoder, SimulatedRotaryEncoder
     from picker.rotary_core import RotaryPickerCore, NavState
-    from picker.ui import compose_rotary_menu
+    from picker.ui import compose_rotary_menu, compose_main_screen
     from picker.drivers.display_fast import clear_display, close as display_close
 
     rotate = None if args.rotate == 'none' else args.rotate
@@ -162,10 +169,13 @@ def _run_rotary(args) -> int:
                 mapper.state.last_raw = raw
                 mapper.state.stable_count = 0
 
-    # rotary_core_holder lets the display callback safely reference
-    # rotary_core before the variable is assigned.  RotaryPickerCore.__init__
-    # fires an initial _refresh_display() call, so the holder avoids a
-    # NameError for that first call.
+    # Maps visual row position on the main screen to CH channel.
+    # compose_main_screen uses knob_order = [0, 4, 1, 5, 2, 6] to lay out six
+    # entries (visual_pos 0-5 → CH 0, 4, 1, 5, 2, 6).  We need the reverse:
+    # given a CH number, which visual row is it?
+    _knob_order = [0, 4, 1, 5, 2, 6]
+    _ch_to_visual = {ch: i for i, ch in enumerate(_knob_order)}
+
     rotary_core_holder = [None]
     prev_menu_image = [None]  # Tracks last menu PNG path for partial (differential) refresh
 
@@ -174,9 +184,37 @@ def _run_rotary(args) -> int:
         rc = rotary_core_holder[0]
         try:
             if rc is None or rc.state is NavState.TOP_MENU:
-                # Top-level navigation: show the rotary menu list with fast partial
-                # refresh so only the changed region (highlighted item) is redrawn.
-                img = compose_rotary_menu(title, items, selected_index, full_screen=effective_size)
+                # TOP_MENU: show the main screen with the currently highlighted
+                # category row inverted so the user can see which category they
+                # are pointing at before pressing to enter its submenu.
+                # selected_index == 0 means "Go" is highlighted (no category).
+                if selected_index > 0:
+                    menu_idx = selected_index - 1
+                    ch = ch_by_menu_idx.get(menu_idx, -1)
+                    highlighted_entry = _ch_to_visual.get(ch, -1)
+                else:
+                    highlighted_entry = -1
+
+                # Sync rotary selections so compose_main_screen shows current values.
+                _sync_hw_from_rotary(rc)
+                # Build display positions (same inversion as show_main()).
+                try:
+                    raw_positions = hw.read_positions()
+                    main_positions = {}
+                    for ch_key, (pos, _) in raw_positions.items():
+                        knob = texts.get(f"CH{ch_key}")
+                        values = knob.get('values', [""] * 12) if knob else [""] * 12
+                        display_pos = max(0, min(len(values) - 1, (len(values) - 1) - pos))
+                        main_positions[ch_key] = display_pos
+                except Exception:
+                    main_positions = {}
+
+                img = compose_main_screen(
+                    texts, main_positions,
+                    full_screen=effective_size,
+                    image_source_text=picker_core.last_image_source,
+                    highlighted_entry=highlighted_entry,
+                )
                 # Save image for next differential update.
                 tmp_path = tempfile.gettempdir() + "/picker_rotary_menu.png"
                 img.save(tmp_path)
@@ -186,12 +224,12 @@ def _run_rotary(args) -> int:
                 # Use partial refresh with the previous image for a fast,
                 # flicker-free update; fall back to DU on the very first render.
                 if prev_menu_image[0] is not None:
-                    blit(img, "rotary-menu", rotate, mode="partial", prev_image_path=prev_menu_image[0])
+                    blit(img, "rotary-main", rotate, mode="partial", prev_image_path=prev_menu_image[0])
                 else:
-                    blit(img, "rotary-menu", rotate, mode="DU")
+                    blit(img, "rotary-main", rotate, mode="DU")
                 prev_menu_image[0] = tmp_path
             else:
-                # SUBMENU: render the list so "* " and the blank entry are visible.
+                # SUBMENU: render the category values list.
                 img = compose_rotary_menu(title, items, selected_index, full_screen=effective_size)
                 tmp_path = tempfile.gettempdir() + "/picker_rotary_menu.png"
                 img.save(tmp_path)
@@ -206,7 +244,7 @@ def _run_rotary(args) -> int:
             logger.debug(f"Display update failed: {exc}")
 
     def _do_action(action_name):
-        """Handle Go / Reset / Back using PickerCore for full SD-generation functionality."""
+        """Handle Go / Reset using PickerCore for full SD-generation functionality."""
         logger.info(f"Action triggered: {action_name}")
         rc = rotary_core_holder[0]
         if rc is not None:
@@ -215,18 +253,13 @@ def _run_rotary(args) -> int:
             picker_core.handle_go()
         elif action_name == "Reset":
             picker_core.handle_reset()
-        elif action_name == "Back":
-            try:
-                prev_menu_image[0] = None
-                picker_core.show_main()
-            except Exception as exc:
-                logger.debug(f"Back to main screen failed: {exc}")
 
     rotary_core = RotaryPickerCore(
         menus=menus,
         on_display=_do_display,
         on_action=_do_action,
         wrap=False,  # Stick at ends rather than wrapping
+        long_press_seconds=args.rotary_long_press_seconds,
     )
     rotary_core_holder[0] = rotary_core
 
@@ -292,8 +325,9 @@ def _run_rotary(args) -> int:
         while running:
             # Drain ALL rotation events from queue and accumulate.
             # This prevents "scrolling continues after knob stops" problem.
+            # Button events are processed immediately (inline) so that
+            # press/release timestamps are accurate for long-press detection.
             had_events = False
-            button_event = None
 
             while True:
                 event = encoder.get_event()
@@ -325,8 +359,10 @@ def _run_rotary(args) -> int:
                     cumulative_rotation += rotation_value
                     logger.debug(f"[Event #{event_count}] rotate={rotation_value}, cumulative={cumulative_rotation}")
                 elif kind == "button":
-                    button_event = bool(value)
+                    # Process button events immediately for accurate long-press timing.
+                    # rotary_core records press_start on True and dispatches on False.
                     logger.debug(f"[Event #{event_count}] button={value}")
+                    rotary_core.handle_button(bool(value))
 
             # Apply cumulative rotation with threshold (finer control)
             if cumulative_rotation != 0:
@@ -341,23 +377,8 @@ def _run_rotary(args) -> int:
                 else:
                     logger.debug(f"Rotation accumulated: {cumulative_rotation}/{rotation_threshold} (need {rotation_threshold - abs(cumulative_rotation)} more)")
 
-            # Handle button event if any
-            if button_event is not None:
-                # Special case: if showing the main screen and button is pressed,
-                # directly trigger GO instead of entering the menu navigation.
-                # This allows the user to press the button at startup to generate
-                # an image without first navigating the menus.
-                if showing_main and button_event:
-                    logger.info("Button pressed on main screen - triggering GO")
-                    _do_action("Go")
-                    showing_main = False
-                    last_activity_time = time.time()
-                else:
-                    rotary_core.handle_button(button_event)
-                    logger.debug(f"  -> After button press={button_event}: state={rotary_core.state.name}, cursor={rotary_core.cursor}")
-
             # Track activity for the idle-to-main-screen timeout
-            if had_events and button_event is None:
+            if had_events:
                 last_activity_time = time.time()
                 showing_main = False
 
@@ -460,6 +481,13 @@ def main(argv=None):
         default=DEFAULT_ROTARY_DEBOUNCE_MS,
         metavar="MS",
         help=f"Button debounce time in ms (default {DEFAULT_ROTARY_DEBOUNCE_MS})",
+    )
+    rotary_group.add_argument(
+        "--rotary-long-press-seconds",
+        type=float,
+        default=DEFAULT_LONG_PRESS_SECONDS,
+        metavar="SECS",
+        help=f"Hold duration in seconds to trigger Reset via long press (default {DEFAULT_LONG_PRESS_SECONDS})",
     )
 
     args = p.parse_args(argv)

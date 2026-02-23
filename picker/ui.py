@@ -125,7 +125,7 @@ def compose_message(message: str, full_screen: Tuple[int, int] = (DISPLAY_W, DIS
     return img
 
 
-def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, int] = (DISPLAY_W, DISPLAY_H), placeholder_path: str = None, rotate_output: str = None, image_source_text: str = None) -> Image.Image:
+def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, int] = (DISPLAY_W, DISPLAY_H), placeholder_path: str = None, rotate_output: str = None, image_source_text: str = None, highlighted_entry: int = -1) -> Image.Image:
     """Compose the main idle screen.
 
     Layout: top-centred placeholder image (reserved 512x512 area where possible),
@@ -134,6 +134,9 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
     - `texts` is the loaded texts mapping (e.g. load_texts()).
     - `positions` is a dict mapping channel int -> position int (0..11).
     - `placeholder_path` optionally overrides the default asset location.
+    - `highlighted_entry` when ≥ 0 inverts the full row (title + value) at that
+      visual entry index (0-5), indicating the user has selected that category
+      with the rotary knob and can press to enter its submenu.
     Returns an L-mode PIL Image sized to full_screen.
     """
     w, h = full_screen
@@ -487,6 +490,22 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
             if top_y + pair_h > area_y1:
                 top_y = area_y1 - pair_h
 
+            # If this entry is highlighted (rotary knob is pointing at it),
+            # draw an inverted box that covers only this entry's text area so
+            # it does not overwrite adjacent entries (entries may overlap when
+            # the display is short relative to the number of categories).
+            row_highlighted = (i == highlighted_entry)
+            if row_highlighted:
+                # Padding mirrors the invert_value style used for value boxes.
+                h_pad_x = max(6, int(base_font_size * 0.25))
+                h_pad_y = max(4, int(base_font_size * 0.15))
+                h_x0 = max(0, x - h_pad_x)
+                h_y0 = max(area_y0, top_y - h_pad_y)
+                # h_x1 covers the widest of the title/value text (max_w).
+                h_x1 = min(layout_w, x + max_w + h_pad_x)
+                h_y1 = min(area_y1, top_y + pair_h + h_pad_y)
+                draw.rectangle((h_x0, h_y0, h_x1, h_y1), fill=0)
+
             try:
                 # append trailing colon only (no leading colon) and draw title
                 try:
@@ -497,7 +516,15 @@ def compose_main_screen(texts: dict, positions: dict, full_screen: Tuple[int, in
                         t = f"{title.strip()}:"
                     except Exception:
                         t = title + ':'
-                draw.text((x, top_y), t, font=title_font, fill=0)
+                text_fill = 255 if row_highlighted else 0
+                draw.text((x, top_y), t, font=title_font, fill=text_fill)
+
+                # When the whole row is highlighted, just draw the value in white
+                # and skip the invert_value logic (the row already has a black bg).
+                if row_highlighted:
+                    val_y = top_y + title_h + gap
+                    draw.text((x, val_y), sel, font=value_font, fill=text_fill)
+                    continue
 
                 # Determine whether this value should be inverted.
                 # If image_source_text is None or empty, invert all values.
