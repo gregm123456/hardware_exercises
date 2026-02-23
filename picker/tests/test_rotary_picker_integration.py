@@ -213,10 +213,16 @@ class TestDoDisplayTopMenu:
                         ch_values = submenu_values
                         display_idx = item_pos
                     img = compose_overlay(ch_title, ch_values, display_idx, full_screen=effective_size)
+                    sub_tmp_path = tempfile.gettempdir() + "/picker_rotary_submenu_test.png"
+                    img.save(sub_tmp_path)
                     with picker_core._display_queue_lock:
                         picker_core._display_queue.clear()
                         picker_core._display_queue.append(("rotary-sub", img, picker_core.rotate, 'FAST'))
-                    prev_menu_image[0] = None  # screen changed; next TOP_MENU render uses full DU
+                    if prev_menu_image[0] is not None:
+                        blit_calls.append(('partial', prev_menu_image[0], img))
+                    else:
+                        blit_calls.append(('DU', None, img))
+                    prev_menu_image[0] = sub_tmp_path
             except Exception:
                 pass
 
@@ -297,7 +303,7 @@ class TestDoDisplayTopMenu:
         assert img.size == effective_size
 
     def test_top_menu_prev_image_reset_on_submenu_entry(self):
-        """After a SUBMENU display, prev_menu_image is reset so next TOP_MENU uses DU."""
+        """After a SUBMENU display, prev_menu_image holds the submenu image for partial refresh."""
         menus = load_menus()
         texts = load_texts()
         ch_by_menu_idx = _build_ch_by_menu_idx(texts)
@@ -330,10 +336,10 @@ class TestDoDisplayTopMenu:
         rotary_core.handle_button(True)
         rotary_core.handle_button(False)  # short press
         assert rotary_core.state is NavState.SUBMENU
-        assert prev_menu_image[0] is None, "prev_menu_image must be None after SUBMENU display"
+        assert prev_menu_image[0] is not None, "prev_menu_image must hold SUBMENU image path for partial refresh"
 
     def test_top_menu_uses_du_blit_after_returning_from_submenu(self):
-        """Returning from a submenu must blit the main screen with DU mode (full refresh)."""
+        """Returning from a submenu must blit the main screen with partial mode (fast differential update)."""
         menus = load_menus()
         texts = load_texts()
         ch_by_menu_idx = _build_ch_by_menu_idx(texts)
@@ -363,7 +369,7 @@ class TestDoDisplayTopMenu:
         rotary_core.handle_button(True)
         rotary_core.handle_button(False)  # short press → enter submenu
         assert rotary_core.state is NavState.SUBMENU
-        assert prev_menu_image[0] is None
+        assert prev_menu_image[0] is not None
 
         # Return from submenu via ↩ Return (cursor 0)
         rotary_core._cursor = 0
@@ -371,10 +377,10 @@ class TestDoDisplayTopMenu:
         rotary_core.handle_button(False)  # short press → return to TOP_MENU
         assert rotary_core.state is NavState.TOP_MENU
 
-        # The blit after returning must use DU (full refresh), not partial
+        # The blit after returning must use partial (fast differential update from submenu image)
         mode, prev_path, img = blit_calls[-1]
-        assert mode == 'DU', "Returning from submenu must use DU mode (not partial)"
-        assert prev_path is None
+        assert mode == 'partial', "Returning from submenu must use partial mode (not full DU)"
+        assert prev_path is not None
         assert img.size == effective_size
 
 
