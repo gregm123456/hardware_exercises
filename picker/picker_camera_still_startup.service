@@ -8,7 +8,8 @@ Type=simple
 User=gregm
 WorkingDirectory=/home/gregm/hardware_exercises
 Environment=PYTHONPATH=/home/gregm/hardware_exercises
-ExecStart=/home/gregm/hardware_exercises/.venv/bin/python3 picker/run_picker.py --rotary --display-w 1448 --display-h 1072
+# ExecStart=/home/gregm/hardware_exercises/.venv/bin/python3 picker/run_picker.py --rotary --display-w 1448 --display-h 1072
+ExecStart=/home/gregm/hardware_exercises/.venv/bin/python3 picker/run_picker.py --display-w 1448 --display-h 1072
 Restart=always
 RestartSec=5
 
