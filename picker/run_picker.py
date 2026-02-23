@@ -235,8 +235,14 @@ def _run_rotary(args) -> int:
                 img.save(tmp_path)
                 with picker_core._display_queue_lock:
                     picker_core._display_queue.clear()
-                blit(img, "rotary-menu", rotate, mode="DU")
-                prev_menu_image[0] = None  # screen changed; next TOP_MENU render uses full DU
+                # Use partial refresh when a previous frame exists so
+                # only the changed row (highlighted item) is redrawn;
+                # fall back to DU on the very first SUBMENU render.
+                if prev_menu_image[0] is not None:
+                    blit(img, "rotary-menu", rotate, mode="partial", prev_image_path=prev_menu_image[0])
+                else:
+                    blit(img, "rotary-menu", rotate, mode="DU")
+                prev_menu_image[0] = tmp_path
         except Exception as exc:
             logger.debug(f"Display update failed: {exc}")
 
