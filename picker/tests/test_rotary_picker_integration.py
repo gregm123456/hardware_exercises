@@ -332,6 +332,51 @@ class TestDoDisplayTopMenu:
         assert rotary_core.state is NavState.SUBMENU
         assert prev_menu_image[0] is None, "prev_menu_image must be None after SUBMENU display"
 
+    def test_top_menu_uses_du_blit_after_returning_from_submenu(self):
+        """Returning from a submenu must blit the main screen with DU mode (full refresh)."""
+        menus = load_menus()
+        texts = load_texts()
+        ch_by_menu_idx = _build_ch_by_menu_idx(texts)
+        effective_size = (800, 600)
+
+        queue = []
+        lock = threading.Lock()
+        blit_calls = []
+        prev_menu_image = [None]
+
+        picker_core = MagicMock()
+        picker_core._display_queue = queue
+        picker_core._display_queue_lock = lock
+        picker_core.rotate = None
+
+        rotary_core_holder = [None]
+        _do_display = self._make_do_display(
+            menus, texts, ch_by_menu_idx, effective_size,
+            picker_core, rotary_core_holder, blit_calls, prev_menu_image,
+        )
+
+        rotary_core = RotaryPickerCore(menus=menus, on_display=_do_display, wrap=False)
+        rotary_core_holder[0] = rotary_core
+
+        # Enter submenu (cursor 1 = first category; Go is at 0)
+        rotary_core._cursor = 1
+        rotary_core.handle_button(True)
+        rotary_core.handle_button(False)  # short press → enter submenu
+        assert rotary_core.state is NavState.SUBMENU
+        assert prev_menu_image[0] is None
+
+        # Return from submenu via ↩ Return (cursor 0)
+        rotary_core._cursor = 0
+        rotary_core.handle_button(True)
+        rotary_core.handle_button(False)  # short press → return to TOP_MENU
+        assert rotary_core.state is NavState.TOP_MENU
+
+        # The blit after returning must use DU (full refresh), not partial
+        mode, prev_path, img = blit_calls[-1]
+        assert mode == 'DU', "Returning from submenu must use DU mode (not partial)"
+        assert prev_path is None
+        assert img.size == effective_size
+
 
 # ---------------------------------------------------------------------------
 # _do_display: SUBMENU uses compose_overlay
