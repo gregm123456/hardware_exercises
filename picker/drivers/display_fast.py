@@ -28,35 +28,6 @@ _display_lock = threading.Lock()
 _reinit_in_progress = False
 
 
-def _do_init(spi_device=0, force_simulation=False):
-    """Inner init logic — **must be called with _display_lock already held**.
-
-    Closes any existing display, creates a fresh instance, and updates the
-    global ``_display``.  Returns True on success, False otherwise.
-    """
-    global _display
-    try:
-        # Close the old instance first to release hardware resources.
-        try:
-            if _display:
-                _display.close()
-        except Exception:
-            logger.debug("Existing display close during init failed; continuing")
-
-        _display = create_display(
-            spi_device=spi_device,
-            vcom=-2.06,
-            force_simulation=force_simulation,
-            prefer_enhanced=True,
-        )
-        logger.info(f"Display initialized (SPI device {spi_device})")
-        return True
-    except Exception as e:
-        logger.error(f"Display initialization failed: {e}")
-        _display = None
-        return False
-
-
 def init(spi_device=0, force_simulation=False, rotate: str = None):
     """Initialize display adapter.
     
@@ -67,14 +38,36 @@ def init(spi_device=0, force_simulation=False, rotate: str = None):
     Returns:
         True if initialization successful
     """
-    global _display_lock
+    global _display, _display_lock, _reinit_in_progress
     # Perform init under lock to avoid races with blit/close
     acquired = _display_lock.acquire(timeout=5.0)
     if not acquired:
         logger.error("Failed to acquire display lock for init")
         return False
     try:
-        return _do_init(spi_device=spi_device, force_simulation=force_simulation)
+        try:
+            # If an existing display exists, close it first to release hardware
+            # resources (SPI, file handles, etc.) before creating a new instance.
+            try:
+                if _display:
+                    _display.close()
+            except Exception:
+                logger.debug("Existing display close during init failed; continuing")
+
+            # Hardware setup: epaper display is on CE0 (SPI device 0) by default
+            # The enhanced driver will use IT8951 package if available, otherwise basic SPI
+            _display = create_display(
+                spi_device=spi_device,
+                vcom=-2.06,
+                force_simulation=force_simulation,
+                prefer_enhanced=True  # Try to use IT8951 package for best results
+            )
+            logger.info(f"Display initialized (SPI device {spi_device})")
+            return True
+        except Exception as e:
+            logger.error(f"Display initialization failed: {e}")
+            _display = None
+            return False
     finally:
         _display_lock.release()
 
@@ -84,11 +77,6 @@ def reinit(spi_device=0, force_simulation=False, rotate: str = None):
 
     This will attempt to close any existing display and create a fresh one.
     Returns True on success, False otherwise.
-
-    Previously this called ``init()`` while already holding ``_display_lock``,
-    which caused a deadlock because ``init()`` also tries to acquire the same
-    non-reentrant lock.  Now both functions share the internal ``_do_init()``
-    helper so the lock is acquired exactly once.
     """
     global _reinit_in_progress, _display_lock
     # Mark reinit in progress so blit calls can fail fast
@@ -99,7 +87,7 @@ def reinit(spi_device=0, force_simulation=False, rotate: str = None):
             logger.error("Could not acquire display lock for reinit")
             return False
         try:
-            return _do_init(spi_device=spi_device, force_simulation=force_simulation)
+            return init(spi_device=spi_device, force_simulation=force_simulation, rotate=rotate)
         finally:
             _display_lock.release()
     finally:
