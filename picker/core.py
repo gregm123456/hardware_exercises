@@ -183,10 +183,14 @@ class PickerCore:
                     # Submit blit to executor and wait with timeout
                     future = self._blit_executor.submit(blit, img, tag, rotate, mode)
                     try:
-                        # Timeout controls how long we wait for hardware response
-                        future.result(timeout=2.0)
+                        # Allow up to 10 s: a GC16 full refresh on a 1448×1072 IT8951
+                        # display typically takes 3-5 s including image preparation.
+                        # The previous 2 s threshold was too short and caused the
+                        # display to be disabled immediately after the initial
+                        # show_main(), making knobs unresponsive for ~10 s at startup.
+                        future.result(timeout=10.0)
                     except concurrent.futures.TimeoutError:
-                        logger.error("Display worker: blit timed out; marking display disabled temporarily")
+                        logger.error("Display worker: blit timed out after 10 s; marking display disabled temporarily")
                         # Mark display disabled for a cooldown period to avoid repeated blocking
                         self._display_disabled_until = time.time() + 5.0
                         # Schedule a background reinitialization attempt to recover the display
