@@ -57,6 +57,11 @@ class PickerCore:
         # Note: last_main_positions, last_interrogate, last_gen_interrogate are 
         # initialized early in __init__ so they always exist
         self.running = False
+        # Previous button states for edge-detection: only fire handle_go /
+        # handle_reset on the False→True rising edge, not on every loop
+        # iteration while the button is held.  Initialized to all-False so
+        # the very first True reading is treated as a fresh press.
+        self._prev_buttons: Dict[str, bool] = {}
         self.stream_port = stream_port
 
         # Camera manager for img2img mode
@@ -178,10 +183,14 @@ class PickerCore:
                     # Submit blit to executor and wait with timeout
                     future = self._blit_executor.submit(blit, img, tag, rotate, mode)
                     try:
-                        # Timeout controls how long we wait for hardware response
-                        future.result(timeout=2.0)
+                        # Allow up to 10 s: a GC16 full refresh on a 1448×1072 IT8951
+                        # display typically takes 3-5 s including image preparation.
+                        # The previous 2 s threshold was too short and caused the
+                        # display to be disabled immediately after the initial
+                        # show_main(), making knobs unresponsive for ~10 s at startup.
+                        future.result(timeout=10.0)
                     except concurrent.futures.TimeoutError:
-                        logger.error("Display worker: blit timed out; marking display disabled temporarily")
+                        logger.error("Display worker: blit timed out after 10 s; marking display disabled temporarily")
                         # Mark display disabled for a cooldown period to avoid repeated blocking
                         self._display_disabled_until = time.time() + 5.0
                         # Schedule a background reinitialization attempt to recover the display
@@ -638,11 +647,16 @@ class PickerCore:
         # Since we now process knob changes immediately in handle_knob_change(),
         # we no longer need separate pending update processing here.
 
-        # buttons
-        if buttons.get("GO"):
+        # buttons — fire only on the rising edge (False → True transition) so
+        # handle_go / handle_reset are called exactly once per press rather
+        # than on every loop iteration while the button is held.  Without
+        # this debounce, holding GO for even a single loop tick caused
+        # repeated queue-clears that prevented knob overlays from rendering.
+        if buttons.get("GO") and not self._prev_buttons.get("GO"):
             self.handle_go()
-        if buttons.get("RESET"):
+        if buttons.get("RESET") and not self._prev_buttons.get("RESET"):
             self.handle_reset()
+        self._prev_buttons = buttons
 
         # overlay timeout: use per-knob activity so each knob keeps its own 2s window
         if self.overlay_visible and self.current_knob is not None:
