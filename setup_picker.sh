@@ -50,9 +50,8 @@ except ImportError as e:
     print(f'❌ IT8951 import failed: {e}')
 
 try:
-    from picker.drivers.epaper_enhanced import DISPLAY_MODE, update_waveshare_available
+    from picker.drivers.epaper_enhanced import DISPLAY_MODE
     print(f'✓ Picker display mode: {DISPLAY_MODE}')
-    print(f'✓ update_waveshare available: {update_waveshare_available}')
 except ImportError as e:
     print(f'❌ Picker import failed: {e}')
 

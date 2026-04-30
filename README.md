@@ -1,190 +1,215 @@
-# hardware_exercises — E-Paper utilities and examples
+# picker — Rotary-knob selection UI for e-paper displays
 
-This repository contains small utilities, examples, and helper scripts for
-working with IT8951-based e-paper displays (Waveshare panels) and a few
-related hardware utilities (MCP3008 ADC helpers, reset utilities, etc.).
+This repository contains the **picker** application: a compact, standalone UI
+driven by six 12-position rotary knobs and two buttons, designed for headless
+hardware (Raspberry Pi + MCP3008 ADC + IT8951-based e-paper display).  Full
+simulation support lets you develop and test on any workstation without
+connected hardware.
 
-Important: the `IT8951/` directory is supplied as a repository submodule or
-local driver copy and provides the low-level driver and display classes.
-Treat the `IT8951` package as an external driver: the rest of this repo
-contains higher-level helpers and example scripts that use it.
+## What it does
 
-## Quick overview
+- Reads six rotary knobs (CH0–CH2, CH4–CH6) and two buttons (CH3 = GO,
+  CH7 = RESET) via an MCP3008-style ADC.
+- Rotating any knob shows a full-screen overlay listing the 12 text values for
+  that knob, with the selected item inverted/highlighted.  The overlay clears
+  2 seconds after the last change.
+- Pressing **GO** calls a Stable Diffusion Web UI server to generate an image
+  from the currently selected knob values (supports both `txt2img` and
+  `img2img` modes) and renders it on the display.
+- Pressing **RESET** shows a "RESETTING" message for 2 seconds and schedules
+  a full display refresh.
+- Optional live MJPEG camera stream (flag `--stream`, default port 8088).
 
-- Purpose: provide utilities to prepare images and update IT8951-driven
-	displays (including a virtual display for development), plus a few
-	convenience scripts for resetting and probing connected hardware.
-- Key helper package: `update_waveshare/` — image preparation and a small
-	CLI wrapper (`simple_update.py`).
-- Driver: `IT8951/` — low-level controller code (submodule / external
-	dependency). See `python_epaper_usage_guide.md` for a walkthrough of the
-	driver API.
+## Repository layout
 
-## Contents (important files)
+```
+picker/               Python package — the full application
+  config.py           Config loader and defaults
+  hw.py               Hardware abstraction (ADC, knob mapping, buttons)
+  ui.py               Pillow-based image composition
+  core.py             State machine and event loop
+  sd_client.py        Stable Diffusion client (GO action)
+  sd_config.py        SD constants and defaults
+  run_picker.py       CLI entry point
+  calibrate.py        Interactive knob calibrator
+  capture_still.py    Camera capture helper (img2img mode)
+  drivers/
+    display_fast.py   Thread-safe display adapter (high-level API)
+    epaper_enhanced.py  Driver factory: IT8951 → basic SPI → simulation
+    epaper_standalone.py  Self-contained IT8951 SPI implementation
+  tests/              Unit and integration tests (pytest)
+  assets/             Placeholder images and HTML preview page
+  systemd/            systemd drop-in templates
+  mcp3008_calibration.json  Example calibration file
+  sample_texts.json   Default knob label configuration
+  requirements.txt    Python dependencies
+IT8951/               Git submodule — IT8951 Python driver (GregDMeyer/IT8951)
+setup_picker.sh       One-step setup script for Raspberry Pi
+```
 
-- `IT8951/` — local copy or submodule of the IT8951 Python driver. Not a
-	unique part of this project; the helpers here expect an IT8951-compatible
-	package to be importable.
-- `update_waveshare/` — helpers that prepare images and send them to the
-	display. Contains `core.py`, `_device.py`, and `simple_update.py`.
-- `python_epaper_usage_guide.md` — usage guide summarizing the IT8951 API,
-	modes, and examples (useful reference when working with the driver).
-- `update_waveshare/requirements.txt` — runtime dependency list for the
-	helpers (Pillow).
-- Top-level scripts and helpers:
-	- `simple_update.py` (convenience wrapper; duplicate exists under
-		`update_waveshare/` as a module entrypoint)
-	- `blank_screen.py`, `restore_display.py`, `aggressive_reset.py`,
-		`force_reinit.py`, `reset_controller.py`, `smart_reset.py` — utilities to
-		clear displays, manage resets, or re-initialise hardware.
-	- `probe_device.py` — helper to probe connected SPI/GPIO devices.
-	- `mcp3008_*.py` and `mcp3008_calibrator.py` — simple helpers for using an
-		MCP3008 ADC (calibration and voltmeter examples).
+## Quick start
 
-## Requirements
-
-- Python 3.7+ (the code uses modern Python but is intentionally lightweight)
-- Pillow (for image handling) — required by `update_waveshare` and the
-	example scripts.
-- The `IT8951` package (provided in `IT8951/` or installable separately via
-	pip). If `IT8951` is not available on your `PYTHONPATH`, the helpers try
-	to add the repository-local `IT8951` path automatically.
-
-Install the helpers' runtime requirements:
+### 1 — Clone with submodules
 
 ```bash
-pip install -r update_waveshare/requirements.txt
+git clone --recurse-submodules <repo-url>
+# or, if already cloned:
+git submodule update --init --recursive
 ```
 
-Install the IT8951 driver from this repository (optional extras for RPi GPIO):
+### 2 — Create a virtualenv and install dependencies
+
+**Raspberry Pi 5** (uses system-provided GPIO/SPI libraries):
+```bash
+python -m venv .venv --system-site-packages
+source .venv/bin/activate
+# Do NOT pip-install RPi.GPIO or spidev — use the system versions
+```
+
+**All other platforms** (including development on macOS/Linux):
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Install Python requirements and the IT8951 driver:
+```bash
+bash setup_picker.sh
+# or manually:
+pip install -r picker/requirements.txt
+pip install -e IT8951/
+```
+
+### 3 — Run in simulation mode (no hardware required)
 
 ```bash
-pip install ./
-# Or, with Raspberry Pi GPIO support:
-pip install '.[rpi]'
+PYTHONPATH=. python picker/run_picker.py --simulate --display-w 800 --display-h 600
 ```
 
-## Quick usage
+### 4 — Run on hardware (Raspberry Pi)
 
-Display an image on a virtual display (fast verification on a desktop):
-
-```bash
-python update_waveshare/simple_update.py /path/to/image.png --virtual
-```
-
-Blank the (real) display:
-
-```bash
-python update_waveshare/simple_update.py --blank
-```
-
-Programmatically from Python (example):
-
-```python
-from update_waveshare.core import display_image
-
-# display_image returns a list of updated regions (bboxes) or an empty list
-regions = display_image('photo.png', virtual=True)
-print('Updated regions:', regions)
-```
-
-Notes about partial updates and VCOM
-- The helpers will attempt partial updates when a previous image is supplied
-	and the computed difference bbox is small enough; otherwise a full update
-	is used. See `update_waveshare/README.md` and `python_epaper_usage_guide.md`
-	for details on display modes (GC16, DU, etc.) and pixel packing.
-- The `vcom` parameter controls panel VCOM voltage; try slightly different
-	negative floats to tweak contrast.
-
-## Hardware setup notes
-
-### Raspberry Pi 5 Support (Crucial)
-The Raspberry Pi 5 uses a new hardware architecture (RP1 chipset) that requires specific handling for GPIO and SPI:
-
-1. **Environment**: Create your virtual environment with `--system-site-packages` to access the Pi 5-specific `RPi.GPIO` and `libcamera` bindings provided by the OS:
-   ```bash
-   python -m venv .venv --system-site-packages
-   ```
-2. **Avoid Conflicts**: Do **not** install `RPi.GPIO` or `spidev` inside the venv via pip. These generic versions are incompatible with Pi 5. If they are already there, uninstall them:
-   ```bash
-   pip uninstall RPi.GPIO spidev
-   ```
-3. **IT8951 Build**: Rebuild the driver C-extensions whenever you change Python versions:
-   ```bash
-   cd IT8951 && pip install -e .
-   ```
-
-### General Setup
-- Enable SPI on single-board computers (Raspberry Pi `raspi-config` -> SPI).
-- Ensure the running user is in `spi` and `gpio` groups if applicable:
+Enable SPI (`raspi-config` → Interface Options → SPI) and add your user to
+the `spi` and `gpio` groups:
 
 ```bash
 sudo usermod -aG spi,gpio $USER
+# re-login for the group change to take effect
 ```
 
-- If you see communication errors, reduce `spi_hz` used when creating the
-	`AutoEPDDisplay` or `EPD` object (the usage guide uses 24 MHz as a
-	reasonable default but not all platforms tolerate it).
+Run the picker:
+```bash
+PYTHONPATH=. python picker/run_picker.py \
+    --display-w 1448 --display-h 1072 --display-spi-device 0
+```
+
+Run in `img2img` mode (requires a connected camera):
+```bash
+PYTHONPATH=. python picker/run_picker.py \
+    --generation-mode img2img --display-w 1448 --display-h 1072
+```
+
+Enable the live camera stream:
+```bash
+PYTHONPATH=. python picker/run_picker.py --stream
+# View at http://<pi-ip>:8088/stream.mjpg
+```
+
+**Raspberry Pi 5 note**: replace `RPi.GPIO` with `rpi-lgpio`:
+```bash
+pip uninstall RPi.GPIO
+pip install rpi-lgpio spidev
+```
+
+## Configuration
+
+### Knob labels — `picker/sample_texts.json`
+
+Each knob maps to a key (`CH0`–`CH2`, `CH4`–`CH6`).  Each key has:
+- `"title"`: category name shown above the overlay
+- `"values"`: array of exactly 12 strings (empty string `""` leaves a slot blank)
+
+```json
+{
+  "CH0": { "title": "Colour", "values": ["Red","Orange","Yellow","Green","Blue","Indigo","Violet","Black","White","Gray","Brown",""] },
+  "CH1": { "title": "Size",   "values": ["XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","7XL",""] }
+}
+```
+
+Pass a custom file with `--config /path/to/my_texts.json`.
+
+### Knob calibration
+
+Run the interactive calibrator to produce a per-device
+`mcp3008_calibration.json`:
+
+```bash
+PYTHONPATH=. python picker/run_picker.py \
+    --run-calibrator --calibration my_cal.json
+```
+
+Use it when starting the picker:
+```bash
+PYTHONPATH=. python picker/run_picker.py --calibration my_cal.json
+```
+
+## Running tests
+
+```bash
+source .venv/bin/activate
+pytest -q picker/tests
+```
+
+All tests use the simulated ADC and simulated display, so they pass without
+any connected hardware on macOS and Linux.
+
+## Systemd services
+
+- `picker/picker_startup.service` — standard `txt2img` mode on boot
+- `picker/picker_camera_still_startup.service` — `img2img` mode on boot
+
+See `picker/README_picker_startup.md` and
+`picker/README_picker_camera_still_startup.md` for installation instructions.
+
+A systemd drop-in that prevents a boot race with `systemd-tmpfiles` (needed
+for the Arducam camera tuning symlink) is in `picker/systemd/`.  Install it
+with:
+
+```bash
+sudo ./picker/install_systemd_dropin.sh
+```
 
 ## Troubleshooting
 
-- ImportError for `IT8951`: either install the driver into your environment
-	(pip install ./IT8951 or pip install it8951 if published) or make sure
-	the local `IT8951/` directory is present and contains the package source.
-- Strange artifacts: try different `vcom` values and/or run a full update.
-- Partial updates not working: ensure `prev_image` is provided and that the
-	computed bbox is non-empty; check alignment constraints (4/8-pixel
-	boundaries).
+- **SPI / GPIO errors**: run `./picker/diagnose_epaper.sh` for a quick
+  diagnostic.
+- **Camera tuning (Arducam Pivariety)**: run
+  `sudo ./picker/setup_camera_tuning.sh` to create the required
+  `arducam-pivariety.json` symlink.
+- **IT8951 ImportError**: ensure `IT8951/` is initialised
+  (`git submodule update --init --recursive`) and installed
+  (`pip install -e IT8951/`).
+- **Partial updates not working**: try a different `--rotate` value or run
+  `--force-simulation` to verify the issue is hardware-specific.
 
-## Developer notes
+## Key CLI flags
 
-- `update_waveshare` intentionally focuses on image preparation and a small
-	CLI; it expects a working `IT8951` driver to be available.
-- `simple_update.py` offers a quick way to run things directly from the
-	repository; prefer `python -m update_waveshare.simple_update` once the
-	package is installed.
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--simulate` | off | Use simulated ADC (no hardware needed) |
+| `--force-simulation` | off | Force simulated display output |
+| `--config FILE` | bundled sample | Path to texts JSON |
+| `--calibration FILE` | none | Path to knob calibration JSON |
+| `--display-w W` | 1024 | Display width in pixels |
+| `--display-h H` | 600 | Display height in pixels |
+| `--display-spi-device N` | 0 | SPI CE for the e-paper display |
+| `--rotate {CW,CCW,flip,none}` | CW | Rotate display output |
+| `--generation-mode {txt2img,img2img}` | txt2img | SD generation mode |
+| `--stream` | off | Enable live MJPEG camera stream |
+| `--stream-port PORT` | 8088 | Port for the MJPEG stream |
+| `--run-calibrator` | off | Run the interactive knob calibrator |
+| `--verbose` | off | Enable debug logging |
 
-## Where to look next
+## License
 
-- Read `python_epaper_usage_guide.md` for a compact summary of the `IT8951`
-	driver's classes and methods (examples, partial update behaviour, VCOM).
-- See `update_waveshare/README.md` for detailed options to `display_image()`
-	and how CLI flags map to behavior.
+See `LICENSE` in this repository.
 
-If you'd like, I can also:
-- Add a short example script that demonstrates a common workflow end-to-end.
-- Create a small tests harness that runs in virtual mode and validates basic
-	display-update paths.
-
-## Picker Subproject
-
-The `picker/` folder contains a standalone UI application for selecting values using rotary knobs and buttons, designed for e-paper displays. It supports both simulation and real hardware modes.
-
-### Key Features
-- **Live Camera Streaming**: Provides an MJPEG stream of the camera view. Enable it with the `--stream` flag (default port 8088).
-- **Stable Diffusion Integration**: Supports `txt2img` and `img2img` generation modes. In `img2img`, the camera captures a still image for processing.
-- **Calibration**: Interactive calibration for rotary knobs using `mcp3008_calibration.json`.
-- **Rotation Support**: Display content can be rotated (`CW`, `CCW`, `flip`) for portrait or landscape layouts.
-- **Systemd Services**: Includes `picker_startup.service` and `picker_camera_still_startup.service` for automatic startup.
-
-### Running the Picker
-1. **Install Requirements**:
-   ```bash
-   pip install -r picker/requirements.txt
-   ```
-2. **Run in Simulation Mode**:
-   ```bash
-   PYTHONPATH=. python picker/run_picker.py --simulate --display-w 800 --display-h 600
-   ```
-3. **Run on Hardware**:
-   ```bash
-   PYTHONPATH=. python picker/run_picker.py --display-w 1448 --display-h 1072 --display-spi-device 0
-   ```
-4. **Enable Live Streaming**:
-   ```bash
-   PYTHONPATH=. python picker/run_picker.py --stream
-   ```
-
-### Troubleshooting
-- Use `picker/diagnose_epaper.sh` to diagnose SPI and GPIO issues.
-- Refer to `picker/README.md` for detailed setup instructions.
