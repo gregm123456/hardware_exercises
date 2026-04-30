@@ -1,9 +1,12 @@
-"""Enhanced standalone e-paper driver that can optionally use IT8951 package.
+"""Enhanced standalone e-paper driver that uses IT8951 package when available.
 
-This provides a self-contained fallback while allowing use of the IT8951 package
-when available for better hardware support.
+Driver selection order:
+  1. IT8951 package (preferred — installed from the bundled IT8951/ submodule)
+  2. Basic SPI implementation (bundled)
+  3. SimulatedDisplay (development / no-hardware fallback)
 """
 import logging
+import sys
 from typing import Union, Optional
 from PIL import Image
 from pathlib import Path
@@ -12,45 +15,29 @@ logger = logging.getLogger(__name__)
 
 # Try to import display drivers in order of preference
 DISPLAY_MODE = "none"
-update_waveshare_available = False
 IT8951_AVAILABLE = False
 
-# First try update_waveshare (most likely to work)
+# Try IT8951 package (installed from the IT8951/ submodule at repo root)
 try:
-    import sys
     current_file = Path(__file__).resolve()
     project_root = current_file.parent.parent.parent
-    
-    # Add project root to path so we can import update_waveshare
+
+    # Add project root to path so the IT8951 package is importable when
+    # installed in editable mode from the submodule directory.
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
-    
-    from update_waveshare.core import display_image, blank_screen
-    from update_waveshare._device import create_device as create_waveshare_device
-    update_waveshare_available = True
-    DISPLAY_MODE = "update_waveshare"
-    print("DEBUG: update_waveshare available - using existing drivers")
-    logger.info("update_waveshare available - using existing drivers")
-except ImportError as e:
-    print(f"DEBUG: update_waveshare not available: {e}")
 
-# Fallback to IT8951 if update_waveshare fails
-if not update_waveshare_available:
-    try:
-        # Try direct IT8951 import
-        it8951_src = project_root / 'IT8951' / 'src'
-        if it8951_src.exists():
-            sys.path.insert(0, str(it8951_src))
-        
-        from IT8951.display import AutoEPDDisplay, VirtualEPDDisplay
-        from IT8951.constants import DisplayModes
-        IT8951_AVAILABLE = True
-        DISPLAY_MODE = "IT8951"
-        print("DEBUG: IT8951 import successful!")
-        logger.info("IT8951 package available - using enhanced driver")
-    except ImportError as e:
-        print(f"DEBUG: IT8951 import failed: {e}")
-        logger.info(f"IT8951 package not available: {e} - using basic SPI driver")
+    it8951_src = project_root / 'IT8951' / 'src'
+    if it8951_src.exists() and str(it8951_src) not in sys.path:
+        sys.path.insert(0, str(it8951_src))
+
+    from IT8951.display import AutoEPDDisplay, VirtualEPDDisplay
+    from IT8951.constants import DisplayModes
+    IT8951_AVAILABLE = True
+    DISPLAY_MODE = "IT8951"
+    logger.info("IT8951 package available - using enhanced driver")
+except ImportError as e:
+    logger.info(f"IT8951 package not available: {e} - using basic SPI driver")
 
 # Fallback to our basic SPI implementation
 try:
@@ -59,68 +46,6 @@ try:
 except ImportError:
     SPI_AVAILABLE = False
 
-
-class WaveshareDisplay:
-    """Display using existing update_waveshare drivers."""
-    
-    def __init__(self, spi_device=0, vcom=-2.06, width=1448, height=1072, virtual=False):
-        self.width = width
-        self.height = height
-        self.virtual = virtual
-        
-        if update_waveshare_available:
-            try:
-                self.device = create_waveshare_device(vcom=vcom, virtual=virtual)
-                self.width = getattr(self.device, 'width', width)
-                self.height = getattr(self.device, 'height', height)
-                logger.info(f"Waveshare display initialized: {self.width}x{self.height}")
-            except Exception as e:
-                logger.error(f"Failed to create waveshare device: {e}")
-                raise
-        else:
-            raise RuntimeError("update_waveshare not available")
-    
-    def clear(self):
-        """Clear the display."""
-        logger.info("Clearing display (waveshare)")
-        if update_waveshare_available:
-            try:
-                blank_screen(device=self.device, virtual=self.virtual)
-            except Exception as e:
-                logger.error(f"Clear failed: {e}")
-    
-    def display_image(self, image: Union[Image.Image, str], mode='auto'):
-        """Display an image."""
-        if isinstance(image, str):
-            img_path = image
-        else:
-            # Save PIL image to temporary file
-            temp_path = "/tmp/picker_temp_display.png"
-            image.save(temp_path)
-            img_path = temp_path
-        
-        try:
-            logger.info(f"Displaying image with waveshare (mode: {mode})")
-            regions = display_image(
-                img_path, 
-                device=self.device, 
-                virtual=self.virtual, 
-                mode=mode,
-                vcom=-2.06  # Use consistent VCOM
-            )
-            logger.info(f"Display update completed, regions: {regions}")
-        except Exception as e:
-            logger.error(f"Display update failed: {e}")
-            raise
-    
-    def close(self):
-        """Close display connection."""
-        if hasattr(self.device, 'epd') and hasattr(self.device.epd, 'standby'):
-            try:
-                self.device.epd.standby()
-            except:
-                pass
-        logger.info("Waveshare display closed")
 
 
 class EnhancedIT8951Display:
@@ -327,15 +252,7 @@ def create_display(spi_device=0, vcom=-2.06, width=1448, height=1072, force_simu
         logger.info("Creating simulated display")
         return SimulatedDisplay(width, height)
     
-    # Try update_waveshare first (most likely to work)
-    if prefer_enhanced and update_waveshare_available:
-        try:
-            logger.info(f"Creating Waveshare display on SPI device {spi_device}")
-            return WaveshareDisplay(spi_device=spi_device, vcom=vcom, width=width, height=height)
-        except Exception as e:
-            logger.warning(f"Waveshare display failed: {e} - trying next option")
-    
-    # Try IT8951 as fallback
+    # Try IT8951 package first (installed from the IT8951/ submodule)
     if prefer_enhanced and IT8951_AVAILABLE:
         try:
             logger.info(f"Creating enhanced IT8951 display on SPI device {spi_device}")
